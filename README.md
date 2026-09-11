@@ -34,6 +34,11 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 若 profile 的 `cordis.patch.yml` 里存在同 id（`dsh-skill-manager`）的手写 insert，
 必须先删除，否则重复 entry id 会导致 cordis 拒绝启动。
 
+> ⚠️ **务必用 `file:` 或 `git+https://` 这两个 spec 安装，不要写裸包名。**
+> npm 上 `dsh-skill-manager` 这个名字属于**第三方**（maintainer `gohana`，2026-08-13 起，v0.1.0–0.1.3），
+> 裸名 `dsh plugin --profile web add dsh-skill-manager` 会装到别人的包。
+> 如果本插件将来要发布到 npm，需要一个**未被占用的名字**（例如带 scope 的 `@<你的账号>/dsh-skill-manager`）。
+
 ## 禁用是怎么实现的 / How disabling works
 
 技能提供方只发现技能根的**直接子项**。禁用即把技能从
