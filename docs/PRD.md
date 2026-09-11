@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |---|---|
 | 文档版本 | **v2.0**（自 v1.1 全面改写：定位收敛 + 两插件合并 + 管理页面 + 标准插件交付） |
-| 状态 | **已定稿（与 v0.1.2 代码对齐）** |
+| 状态 | **已定稿（与 v0.1.4 代码对齐）** |
 | 产品/项目 | DeepSeek Harness（DSH）插件 **`dsh-skill-manager`**（双半区标准插件；包名已脱离 `@deepseek-ai` 域） |
 | 关联文档 | [PLAN-ALIGNMENT-v2.md](PLAN-ALIGNMENT-v2.md)（需求对齐与调查依据）、[EVALUATION-REPORT.md](EVALUATION-REPORT.md)（10 项裁决）、[INSTALL-MIGRATION.md](INSTALL-MIGRATION.md)（换装与验收清单）、[M2-PLAN.md](M2-PLAN.md)、[adr/](adr/)（ADR 0001-0006）、[CONTEXT.md](CONTEXT.md)（术语表） |
 | 工作区流程指引 | `D:\DSH\PLUGIN-DEV-CHECKLIST.md`（插件交付前检测流程；本仓库 `tests/`+`tools/` 是其参考实现） |
@@ -11,7 +11,7 @@
 
 > **本版与 v1.1 的关系**：v1.1 的三条明文条款已被后续需求推翻（见 §1.4 与 §3），v2.0 按
 > PLAN-ALIGNMENT-v2 §3「旧计划逐条 Review」的处置逐项改写，并按已落地代码标注实现状态。
-> 状态标记：**✅ 已实现（v0.1.2）** / **⏳ 待实现** / **⛔ 非目标**。
+> 状态标记：**✅ 已实现（v0.1.4）** / **⏳ 待实现** / **⛔ 非目标**。
 
 ---
 
@@ -56,7 +56,7 @@
 
 ### 1.4 目标（Goals）
 
-- **G1** 把技能管理固化为 dsh 内的一等命令：`/skill list|search|disable|enable|remove|adopt|verify|doctor|install`。
+- **G1** 把技能管理固化为 dsh 内的一等命令：`/skill list|search|disable|enable|remove|adopt|verify|doctor|install|migrate`。
 - **G2** 操作具备**原子性、幂等性、可审计性**（来源 + commit + 逐文件 sha256 记账）。
 - **G3** 校验规则与提供方**严格镜像**：凡装进去的必被发现；装不进去的必给出原因（消灭 P3）。
 - **G4** 统一技能根到 `~/.dsh/skills`，存量迁移、收编入账。
@@ -91,8 +91,8 @@
 - **SC-01 从 GitHub 安装并立即使用**：`/skill install github:mattpocock/skills#main/skills/engineering/domain-modeling` → 命令面板返回「installed <name> @ <commit> — visible from the next turn」→ 下一轮对话技能目录出现该技能，**无需重启**。
 - **SC-02 卸载**：页面点「删除」→ 卡片内联二次确认 → 技能移入备份区、清单删条目；`/skill remove <name> --purge` 连备份一并清除。
 - **SC-03 校验完整性**：篡改 `SKILL.md` 后 `/skill verify <name>` → 逐文件 sha256 比对，列出 `modified/missing/extra`。
-- **SC-04 存量迁移与收编**（⏳ 待实现）：`~/.agents/skills` 的两技能迁入统一根并 `adopt` 入账。
-- **SC-05 环境诊断**：`/skill doctor` → 报告技能根、隐藏区、清单、未入账、缺失、其他根。
+- **SC-04 存量迁移与收编**（✅ 已实现）：命令侧 `/skill migrate`（批量）或 `/skill migrate <name>`（单个）把 `~/.agents/skills` 等**外来根**的技能同卷 rename 进统一根并自动入账；页面侧在「其他根」只读卡片上提供「**迁移**」按钮 + 卡片内联二次确认。迁移后该技能即可禁用/卸载。
+- **SC-05 环境诊断**：`/skill doctor` → 报告技能根、隐藏区、清单、未入账、缺失、其他根（附可迁移计数）、**接线状态（wiring）**与**客户端契约自检**。
 - **SC-06 校验失败的显式反馈（消灭 P3）**：安装源 frontmatter 使用驼峰键 `disableModelInvocation` → 安装被拒，错误文本指明 canonical 拼写，已装内容毫发无损。
 - **SC-07 页面查询与本地搜索**：打开 设置 → 技能 → 顶部搜索框输入 `grill` → 只剩 grilling / grill-me / grill-with-docs；`2/7` 计数显示过滤比。
 - **SC-08 页面禁用/启用**：卡片显示「● 已启用 [禁用] [删除]」→ 点「禁用」→ 提示成功，卡片变「○ 已禁用 [启用] [删除]」；下一轮对话起模型目录不再含它；`~/.dsh/.skill-disabled/<name>/` 保存原文件。
@@ -107,7 +107,7 @@
 | 优先级 | 范围 | 状态 |
 |---|---|---|
 | **P0** | `install`（三类来源 + 校验镜像）、`list`、`remove`、清单记账、`disable`/`enable`、管理页面（查询/搜索/禁用/卸载）、标准插件打包 | ✅ 已实现 |
-| **P1** | `adopt`、`verify`（本地）、`doctor`、存量迁移 | `adopt`/`verify`/`doctor` ✅ 已实现；迁移 ⏳ |
+| **P1** | `adopt`、`verify`（本地）、`doctor`、存量迁移 | ✅ 已实现（`doctor` 另含接线状态与客户端契约自检） |
 | **P2 候选** | `--project` 项目根、`/skill restore` 一键恢复、备份区自动清理策略、多机 manifest 同步、页面批量操作、无障碍审计 | ⏳ 待实现 |
 | **远期** | `update`（升级）、`verify --remote`（联网对照上游） | ⏳ 待实现（用户明确近期不做） |
 | **非目标** | 互联网检索/市场、页面内安装入口、zip/HTTP 源、上游贡献、嵌套技能树 | ⛔ |
@@ -162,7 +162,7 @@ sequenceDiagram
 
 `/skill adopt <name> [--source <spec>]`：定位技能（live 或隐藏区）→ 校验 frontmatter → 登记清单
 （`source` 缺省记 `null`＝local，`files` 记 sha256，`state` 取当前位置）→ 之后即可被禁用/卸载/校验。
-批量迁移（`~/.agents/skills` → `~/.dsh/skills`）⏳ 待实现（FR-11）。
+存量迁移（`~/.agents/skills` → `~/.dsh/skills`）为独立子流程，见 §4.7（FR-11，已实现）。
 
 ### 4.4 禁用 / 启用子流程（v2 新增，已实现）
 
@@ -185,22 +185,41 @@ stateDiagram-v2
 
 - **verify**：读清单 → 逐文件 sha256 比对 → 输出 `clean` / `modified` / `missing` / `extra`；未入账时提示先 `adopt`。
   （`--remote` 联网对照上游 ⏳ 远期。）
-- **doctor**：六项本地检查 —— 技能根存在性、隐藏区、清单可解析与条目数、未入账清单、文件缺失清单、其他根（只读）。
+- **doctor**：**六项本地检查**——技能根存在性、隐藏区、清单可解析与条目数、未入账清单、文件缺失清单、
+  其他根（只读，附可迁移/被拒计数）；**另加两项运行期自检**：`wiring:`（`commands` / `routes` / `webServer` /
+  `navIcon` 的实际接线状态）与 `client half:`（客户端契约自检结论与 `✗` 明细，见 §8.9），以及 `catalog query:`（目录查询是否可用，失败时给出原因）。
 
 ### 4.6 页面操作流程与双入口一致性（v2 新增，已实现）
 
 ```
-/skill list|search|disable|enable|remove|adopt|verify|doctor|install   ← 命令平面（人/模型）
+/skill list|search|disable|enable|remove|adopt|verify|doctor|install|migrate   ← 命令平面（人/模型）
                     ↘                                    ↙
                       lib/core/*（校验 / 落位 / 备份 / 清单 / 锁）  ← 唯一实现
                     ↗                                    ↖
-设置 → 技能 页面 ── fetch ──> /dsh-skills/list|set-enabled|remove|adopt|verify|doctor   ← HTTP 平面（浏览器）
+设置 → 技能 页面 ── fetch ──> /dsh-skills/list|set-enabled|remove|migrate|adopt|verify|doctor   ← HTTP 平面（浏览器）
 ```
 
 1. 页面加载 → `GET /dsh-skills/list` → 渲染卡片（含跨根只读行）；
-2. 用户操作 → `POST /dsh-skills/set-enabled|remove|adopt`（同源校验 + body ≤4 KiB）→ 调用与命令**同一 core 函数**；
+2. 用户操作 → `POST /dsh-skills/set-enabled|remove|migrate|adopt`（同源校验 + body ≤4 KiB）→ 调用与命令**同一 core 函数**；
 3. 结果 → 页面顶部 notice 行（成功/失败）+ 自动刷新列表；
 4. 并发 → 两条入口共用同一把锁（`withSkillLock`），后到者收到「另一技能操作正在进行中」。
+
+### 4.7 存量迁移子流程（v0.1.4 新增，已实现）
+
+入口：`/skill migrate [<name>] [--dry-run]`（无名字＝批量）、`POST /dsh-skills/migrate`、
+页面「其他根」卡片上的「**迁移**」按钮（卡片内联二次确认，与「删除」同款范式）。
+
+1. **扫描**（`scanMigratable`）：遍历外来根——默认 `$DSH_AGENTS_HOME/skills`，否则 `~/.agents/skills`
+   （测试缝 `DSH_SKILL_MANAGER_FOREIGN_ROOTS`，Windows 以 `;` 分隔多根）——按 frontmatter 名归并，
+   产出「可迁移」与「被拒（含原因）」两组；
+2. **拒绝条件**（命中任一即拒，**绝不静默覆盖或遮蔽**）：
+   ① frontmatter 非法（无法确定身份）；② 受管根**或隐藏区**已有同名——**按 frontmatter 名比对，任何形态都算**
+   （修掉了「外来 flat 与本地 bundle 同名互撞」的真实缺陷）；③ 另一外来根已占用同名；
+3. **落位**：**同卷单次 rename**（bundle → `<root>/<name>/`，flat → `<root>/<name>.md`）；
+   跨卷 `EXDEV` 直接拒绝（不做 copy+rm）；**技能内容不重写**，逐字节保持原样；
+4. **记账**：写入清单并附 `migratedFrom`（原路径）、`files`（sha256）、`state: enabled`、`phase: committed`；
+5. **迁移后**：该技能从「其他根只读行」变为**受管行**，可被禁用/启用/卸载/校验（冒烟测试断言了这条闭环）；
+6. `--dry-run` 只预览（不移动任何文件）；批量迁移对单条失败做隔离（一条失败不影响其余）。
 
 ---
 
@@ -249,6 +268,7 @@ github:<owner>/<repo>#<ref>[/<path>]
 | `files` | 逐文件 `sha256:`（相对路径为键；跳过 `.git`、`.DS_Store`、>8 MB 成员） | ✅ 已实现 |
 | `state` / `phase` | `enabled`/`disabled`；`moving`/`committed`（崩溃恢复用） | ✅ 已实现 |
 | `disabled{at,zone,from,to}` | 禁用时的来源/目标路径与时间，供 `doctor` 对账 | ✅ 已实现 |
+| `migratedFrom` | 迁移来源的**绝对路径**（由 §4.7 写入）；有值即表示该技能是从外来根迁入的 | ✅ 已实现 |
 | `disabled.catalogSource` / `disabled.contentHash` / `disabledHistory[]` | 对齐方案建议的增强字段（复核禁用前的 provider source、正文哈希漂移检测、禁用史） | ⏳ 待实现 |
 | `root`（顶层） | v1 恒为 `"user"`，预留 `"project"` 作 `--project` 生长点 | ✅ 已实现（恒值） |
 
@@ -266,7 +286,8 @@ github:<owner>/<repo>#<ref>[/<path>]
 | 数据源 | 用途 | 说明 |
 |---|---|---|
 | **本地扫描 + 清单** | **清单的权威源** | 覆盖未入账、已禁用、`user-invocable:false`、frontmatter 非法等 `remote.skills` 看不到的行 |
-| `ctx.skills.list()`（catalog） | **旁证 + 补齐其他根** | 仅用于「目录可见」标记与把其他根（如 `~/.agents/skills`）的技能补成**只读行**（`managed:false`），保证与模型所见一致 |
+| **外来根目录自枚举**（`foreignRoots()`，默认 `~/.agents/skills`） | **其他根只读行的权威源** | 宿主**自己列目录**（`listContainerEntries` + frontmatter 摘要），不依赖任何注册表调用；因此「目录查询失败就看不到其他根技能」这类回归不会发生（v0.1.4 修复，冒烟 5 项断言守护） |
+| `ctx.skills.list()`（catalog） | **旁证 + 补齐剩余来源** | 仅用于「目录可见」标记，以及补上我们列不到的来源（项目根、内置 bundled）；**查询失败不再静默**：页面显示「技能目录查询失败，列表可能不完整」，`doctor` 报 `catalog query: FAILED — <原因>` |
 | `remote.skills`（HTTP 侧的 `skills.list`） | **不使用** | 它按调用策略过滤，看不到已禁用/仅模型可调用/未入账的技能——正是管理器要管理的行 |
 
 ### 5.4 状态机与写入顺序
@@ -289,28 +310,28 @@ github:<owner>/<repo>#<ref>[/<path>]
 
 ## 6. 功能需求（FR）
 
-> 状态口径：**✅ 已实现（v0.1.2）**＝代码已落地且被 `tests/` 覆盖；**⏳ 待实现**＝在范围内但未做；
+> 状态口径：**✅ 已实现（v0.1.4）**＝代码已落地且被 `tests/` 覆盖；**⏳ 待实现**＝在范围内但未做；
 > **⛔ 非目标**＝明确不做。FR-01~FR-12 沿用 v1.1 编号，FR-13~FR-17 为 v2 新增，FR-18~FR-25 为边界与远期项。
 
 | ID | 需求 | 验收标准（摘要） | 状态 |
 |---|---|---|---|
-| **FR-01** | `install` 支持三类来源；同名不同源默认拒绝 | 三类来源各自安装成功且记账正确；同名不同源报错并展示既有 source/ref，`--force` 换源覆盖且旧版入备份区（裁决 5） | ✅ 已实现（v0.1.2） |
-| **FR-02** | 镜像校验 | 非法 skill 名、缺 description、驼峰调用键、非布尔调用值各自被拒且错误指明原因；合法技能装后必出现在下一轮技能目录 | ✅ 已实现（v0.1.2） |
-| **FR-03** | 原子落位与备份 | 安装中断不产生半成品；覆盖前旧版必入备份区；staging 在技能根之外 | ✅ 已实现（v0.1.2） |
-| **FR-04** | 清单记账 | `install`/`adopt`/`disable`/`enable`/`remove` 后清单条目与磁盘一致（source/ref/files/state/phase/时间戳） | ✅ 已实现（v0.1.2） |
-| **FR-05** | `list` 三方对照 | 输出清单状态、磁盘实况、目录可见性，标出 `untracked`/`missing`/`disabled`/`invalid`/其他根只读（`modified` 由 FR-08 承担，`list` 不比对哈希） | ✅ 已实现（v0.1.2） |
+| **FR-01** | `install` 支持三类来源；同名不同源默认拒绝 | 三类来源各自安装成功且记账正确；同名不同源报错并展示既有 source/ref，`--force` 换源覆盖且旧版入备份区（裁决 5） | ✅ 已实现（v0.1.4） |
+| **FR-02** | 镜像校验 | 非法 skill 名、缺 description、驼峰调用键、非布尔调用值各自被拒且错误指明原因；合法技能装后必出现在下一轮技能目录 | ✅ 已实现（v0.1.4） |
+| **FR-03** | 原子落位与备份 | 安装中断不产生半成品；覆盖前旧版必入备份区；staging 在技能根之外 | ✅ 已实现（v0.1.4） |
+| **FR-04** | 清单记账 | `install`/`adopt`/`disable`/`enable`/`remove` 后清单条目与磁盘一致（source/ref/files/state/phase/时间戳） | ✅ 已实现（v0.1.4） |
+| **FR-05** | `list` 三方对照 | 输出清单状态、磁盘实况、目录可见性，标出 `untracked`/`missing`/`disabled`/`invalid`/其他根只读（`modified` 由 FR-08 承担，`list` 不比对哈希） | ✅ 已实现（v0.1.4） |
 | **FR-06** | `update`（升级技能） | 同 commit 跳过；SHA 变化换装并如实展示「旧 → 新」双 SHA（裁决 8）；`--all` 遍历；失败保持现状 | ⏳ 待实现（**远期**，当前返回占位提示） |
-| **FR-07** | `remove` 卸载 | 移备份区 + 删条目；`--purge` 清备份；未入账技能需 `--force` | ✅ 已实现（v0.1.2） |
-| **FR-08** | `verify` 本地完整性 | sha256 比对输出 `clean/modified/missing/extra` 四类结果 | ✅ 已实现（v0.1.2） |
-| **FR-09** | `doctor` 诊断 | 报告技能根 / 隐藏区 / 清单 / 未入账 / 文件缺失 / 其他根六项 | ✅ 已实现（v0.1.2） |
-| **FR-10** | `adopt` 收编 | 未入账技能登记入账，`--source` 可显式指定来源 | ✅ 已实现（v0.1.2） |
-| **FR-11** | 存量迁移 | `~/.agents/skills` 两技能迁入统一根且目录内无缝衔接，并自动入账 | ⏳ 待实现 |
-| **FR-12** | 幂等与并发 | 同 source+ref 重装跳过；并发操作由锁文件串行化，后到者报「另一技能操作正在进行中」 | ✅ 已实现（v0.1.2） |
-| **FR-13** | 页面清单视图（沿用现有页面设计） | 标题 + 说明 + 卡片列表 + 徽标 + 展开详情；**顶部本地搜索框**（按名称/描述过滤，显示 `筛选/总数`）；卡片展示名称/描述/形态/来源/状态；含未入账/已禁用/**其他根只读**行 | ✅ 已实现（v0.1.2） |
-| **FR-14** | 页面启用/禁用控件 | 每卡显示**当前状态文字 + 动作按钮**（见 NFR-13）；禁用＝移入同级隐藏区（可逆），启用＝移回；**下一轮对话起生效**；经锁串行化 | ✅ 已实现（v0.1.2） |
-| **FR-15** | 页面删除控件 | 卡片「删除」按钮 + **二次确认**（实现为卡片内联确认行，等价两步确认）→ 移入备份区 + 删清单条目；页面移除该项 | ✅ 已实现（v0.1.2） |
-| **FR-16** | 命令/页面一致性 | 同一技能经命令或页面操作后状态完全一致（同一 core 实现 + 同一把锁） | ✅ 已实现（v0.1.2） |
-| **FR-17** | 操作反馈 | 每个动作有进行中/成功/失败态与可执行错误文案；失败不改变已装内容；完成后面板自动刷新 | ✅ 已实现（v0.1.2） |
+| **FR-07** | `remove` 卸载 | 移备份区 + 删条目；`--purge` 清备份；未入账技能需 `--force` | ✅ 已实现（v0.1.4） |
+| **FR-08** | `verify` 本地完整性 | sha256 比对输出 `clean/modified/missing/extra` 四类结果 | ✅ 已实现（v0.1.4） |
+| **FR-09** | `doctor` 诊断 | **六项本地检查**（技能根 / 隐藏区 / 清单 / 未入账 / 文件缺失 / 其他根，其他根附可迁移与受阻计数）**+ `wiring:`**（`commands`/`routes`/`webServer`/`navIcon` 接线状态）**+ `client half:`**（客户端契约自检结论与 `✗` 明细，见 §8.9） | ✅ 已实现（v0.1.4） |
+| **FR-10** | `adopt` 收编 | 未入账技能登记入账，`--source` 可显式指定来源 | ✅ 已实现（v0.1.4） |
+| **FR-11** | 存量迁移 | 命令 `/skill migrate [<name>] [--dry-run]`（无名＝批量）、HTTP `POST /dsh-skills/migrate`、页面「其他根」卡片的「迁移」按钮（内联确认）；**同卷 rename**、内容不重写、写清单附 `migratedFrom`；拒绝：frontmatter 非法 / 受管根或隐藏区已有同名（按 frontmatter 名比对，任何形态）/ 另一外来根同名；迁移后即可禁用与卸载 | ✅ 已实现（v0.1.4） |
+| **FR-12** | 幂等与并发 | 同 source+ref 重装跳过；并发操作由锁文件串行化，后到者报「另一技能操作正在进行中」 | ✅ 已实现（v0.1.4） |
+| **FR-13** | 页面清单视图（沿用现有页面设计） | 标题 + 说明 + 卡片列表 + 徽标 + 展开详情；**顶部本地搜索框**（按名称/描述过滤，显示 `筛选/总数`）；卡片展示名称/描述/形态/来源/状态；含未入账/已禁用/**其他根只读**行 | ✅ 已实现（v0.1.4） |
+| **FR-14** | 页面启用/禁用控件 | 每卡显示**当前状态文字 + 动作按钮**（见 NFR-13）；禁用＝移入同级隐藏区（可逆），启用＝移回；**下一轮对话起生效**；经锁串行化 | ✅ 已实现（v0.1.4） |
+| **FR-15** | 页面删除控件 | 卡片「删除」按钮 + **二次确认**（实现为卡片内联确认行，等价两步确认）→ 移入备份区 + 删清单条目；页面移除该项 | ✅ 已实现（v0.1.4） |
+| **FR-16** | 命令/页面一致性 | 同一技能经命令或页面操作后状态完全一致（同一 core 实现 + 同一把锁） | ✅ 已实现（v0.1.4） |
+| **FR-17** | 操作反馈 | 每个动作有进行中/成功/失败态与可执行错误文案；失败不改变已装内容；完成后面板自动刷新 | ✅ 已实现（v0.1.4） |
 | **FR-18** | 互联网技能检索 / 市场 / 索引 | — | ⛔ 非目标（§1.3） |
 | **FR-19** | 页面内安装入口（从 URL 安装） | — | ⛔ 非目标：安装只在命令平面（HTTP 层有意不暴露 `install` 路由） |
 | **FR-20** | zip / HTTP 归档源安装 | — | ⛔ 非目标（提供方与来源语法均不支持） |
@@ -320,7 +341,7 @@ github:<owner>/<repo>#<ref>[/<path>]
 | **FR-24** | 备份区自动清理策略 | 保留最近 N 版 / 30 天 | ⏳ 待实现（P2 候选；v1 不清理，裁决 3） |
 | **FR-25** | `verify --remote` 联网对照上游 HEAD | 与记录 ref 对比并提示可更新 | ⏳ 待实现（**远期**，随 FR-06 一并生长） |
 
-**状态统计**：✅ 已实现 **15** 条（FR-01~05、07~10、12~17）｜⏳ 待实现 **7** 条（FR-06、11、21~25）｜⛔ 非目标 **3** 条（FR-18~20）｜合计 **25** 条。
+**状态统计**（v0.1.4）：✅ 已实现 **16** 条（FR-01~05、07~17）｜⏳ 待实现 **6** 条（FR-06、21~25）｜⛔ 非目标 **3** 条（FR-18~20）｜合计 **25** 条。
 
 ---
 
@@ -357,6 +378,7 @@ D:\DSH\dsh-skill-manager\
 │   ├── index.js              # 宿主半区入口：/skill 命令组 + 路由挂载（嵌套注入 webServer）+ navIcon 自愈
 │   ├── http.js               # /dsh-skills/* 本地路由（同源校验 + 4 KiB body 上限 + 统一错误 JSON）
 │   ├── navicon.js            # 设置页「技能」图标自愈补丁（自旧包迁入）
+│   ├── selfcheck.js          # 客户端契约自检（doctor 消费；两次真实契约漂移的常态化检查）
 │   ├── client.js             # 客户端半区：设置 → 技能 管理页（lazy-CJS 工厂包）
 │   └── core/                 # ★ 命令与页面共用的唯一实现
 │       ├── paths.js          # dshHome / skillsRoot / manifestPath / hiddenZone / backupsDir / lockPath / stagingRoot（含测试缝环境变量）
@@ -365,8 +387,9 @@ D:\DSH\dsh-skill-manager\
 │       ├── manifest.js       # 清单读写（原子写）
 │       ├── source.js         # 来源描述解析
 │       ├── validate.js       # frontmatter 解析 + 镜像校验
-│       ├── scan.js           # 扫描 + 合并视图（清单 / live / 隐藏区 / catalog）
+│       ├── scan.js           # 扫描 + 合并视图（清单 / live / 隐藏区 / 外来根自枚举 / catalog）
 │       ├── install.js        # install / remove / verify + 锁包裹
+│       ├── migrate.js        # 存量迁移（外来根 → 受管根：scan / migrateSkill / migrateAll）
 │       └── state.js          # disable / enable / adopt
 ├── tests/
 │   ├── smoke.mjs             # 宿主与核心离线冒烟（临时技能根）
@@ -400,20 +423,23 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | enable | `/skill enable <name>` | `enabled "<name>" — visible again from the next turn` | 同上 |
 | remove | `/skill remove <name> [--purge] [--force]` | `removed "<name>" — a copy is kept at <备份路径>` | 未入账需 `--force`；技能不存在 |
 | adopt | `/skill adopt <name> [--source <spec>]` | `adopted "<name>" …` | 技能不存在；校验失败 |
+| migrate | `/skill migrate [<name>] [--dry-run]` | 单个：`migrated "<name>" into <root> and recorded it in the ledger — manageable from the next turn`；批量：`已迁移 migrated: n/m` + 逐条 ✓/✗；`--dry-run` 时输出 `可迁移 migratable: n` 与 `from → to` 预览 | 外来根无此技能；frontmatter 非法；同名已存在于受管根/隐藏区/另一外来根（逐条给出原因） |
 | verify | `/skill verify [<name>]` | `✓ <name> [state] clean` 或 `! … modified=n missing=n extra=n` | 未入账提示先 adopt |
-| doctor | `/skill doctor` | 六项检查结果 | 清单不可读时报告原因 |
+| doctor | `/skill doctor` | 本地检查 + `wiring:` 接线状态 + `client half:` 客户端契约自检（`✗` 明细）+ `catalog query:` 目录查询状态 | 清单不可读或目录查询失败时报告原因 |
 | install | `/skill install <spec> [--force]` | `installed "<name>" @ <sha12> — visible from the next turn` | 校验失败；同名冲突；git 凭证/超时/404 |
 | update | `/skill update` | 占位提示「暂不支持更新（近期范围外）」 | — |
 
-（`--force`/`--purge`/`--source` 均被实际消费；`--dry-run` 已解析但尚无消费者——见 §10 开放问题。）
+（`--force`/`--purge`/`--source`/`--dry-run` 均被实际消费——`--dry-run` 由 `migrate` 消费（预览，不移动文件）；
+原先无消费者的 `--all` 旗标已从解析器中移除。）
 
-### 8.3 HTTP 路由规范（v2 新增，已实现）
+### 8.3 HTTP 路由规范（v2 新增，已实现；**共 7 条**）
 
 | 方法 | 路径 | 请求 | 响应要点 |
 |---|---|---|---|
 | GET | `/dsh-skills/list` | — | `{ ok, root, zone, manifestFile, manifestLoaded, rows[] }`（rows 含受管行与其他根只读行） |
 | POST | `/dsh-skills/set-enabled` | `{ name, enabled: boolean }` | `{ ok, changed, name, state, from?, to?, message }` |
 | POST | `/dsh-skills/remove` | `{ name, purge?, force? }` | `{ ok, name, state, backupPath, purged, message }` |
+| POST | `/dsh-skills/migrate` | `{ name }` | `{ ok, name, from, to, message }`（同卷 rename + 记账；失败返回 400 + 原因） |
 | POST | `/dsh-skills/adopt` | `{ name, source? }` | `{ ok, name, source, state, message }` |
 | GET | `/dsh-skills/verify?name=` | — | `verifySkill()` 结果 |
 | GET | `/dsh-skills/doctor` | — | `{ ok, …buildDoctor() }` |
@@ -484,6 +510,25 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | `peerDependencies` 全部标 `optional`（`autoInstallPeers:false`，peer 仅文档性） | ✅ |
 | 挂载后可见性 | ✅ 页面已可用；「设置 → 插件 → Plugin list 列出本插件 entry」建议人工再确认一次 |
 
+### 8.9 运行期自检（v0.1.4 新增，已实现）
+
+`lib/selfcheck.js` 把两次真实契约漂移（`connection.api.*` → `ctx.remote.*` 改名；手写 bundle 缺
+`module`/`exports` 前置声明）变成**常态可查项**，由 `doctor` 的 `client half:` 行输出
+（`lib/selfcheck.js` 的 `checkClientContract()`）：
+
+| 检查 | 失败文案要点 |
+|---|---|
+| `dsh.client` 已声明时 `platform` 必须为 `"web"` | `dsh.client.platform must be "web"; got …` |
+| `exports["./client"]` 必须存在且文件可读 | `dsh.client is declared but exports["./client"] is missing` |
+| 产物必须是 lazy-CJS 工厂包（`__ModuleLoader__.load({id, factory})`） | `client bundle is not a lazy-CJS factory package` |
+| 产物 `id` 必须等于包名 | `client bundle id "…" differs from the package name "…"` |
+| 赋值 `exports` 前必须声明 `module`/`exports` | `client bundle assigns to exports without declaring …` |
+| `require` 只能落在基座白名单或 `dsh.client.external` 内 | `client bundle requires non-seed modules without declaring them external: …` |
+
+同时 `doctor` 的 `wiring:` 行报告本进程的实际接线：`commands`（命令注册）、`routes`
+（是否已挂载路由；无 `webServer` 时为 `n/a (no web server)`）、`navIcon`（图标自愈补丁状态），
+以及 `apply()` 期间捕获的错误明细（`✗` 行）。二者合起来覆盖了「插件装上了但界面/命令没接上」这一类静默故障。
+
 ---
 
 ## 9. 验收标准与测试计划
@@ -492,8 +537,8 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 
 | 测试 | 覆盖 | 结果 |
 |---|---|---|
-| `tests/smoke.mjs` | 来源解析（6 类）、校验镜像（4 类拒绝）、清单视图、**跨根 catalog 只读行**、adopt+verify（含篡改检测）、禁用/启用（含幂等与隐藏区落位）、install（本地源/幂等/同名拒绝/`--force` 换源备份）、remove（备份路径/条目删除/未入账守卫）、doctor | **45 passed, 0 failed** |
-| `tests/client-bundle.mjs` | bundle 注册格式与 `id`、工厂可执行（`module/exports` 前置声明）、exports 契约、只 require 基座模块、`apply()` 注册 `settings.section id=skills order=16`、双语字典键集一致、一次渲染、**控件语义回归**（无勾选框控件；状态文字与动作文案一致） | **25 passed, 0 failed** |
+| `tests/smoke.mjs` | 来源解析（6 类）、校验镜像（4 类拒绝）、清单视图、**跨根 catalog 只读行**、**外来根自枚举（无需 catalog 也能列出其他根技能，5 项断言）**、adopt+verify（含篡改检测）、禁用/启用（含幂等与隐藏区落位）、install（本地源/幂等/同名拒绝/`--force` 换源备份）、remove（备份路径/条目删除/未入账守卫）、**存量迁移（12 项：扫描/被拒原因/`--dry-run` 不移动/同卷移动两端/源副本消失/`migratedFrom`/迁移后受管且可禁用/非法拒绝）**、**客户端契约自检（2 项）**、doctor | **59 passed, 0 failed** |
+| `tests/client-bundle.mjs` | bundle 注册格式与 `id`、工厂可执行（`module/exports` 前置声明）、exports 契约、只 require 基座模块、`apply()` 注册 `settings.section id=skills order=16`、双语字典键集一致、一次渲染、**控件语义回归**（无勾选框控件；状态文字与动作文案一致）、**其他根卡片动作**（只读提示 + 有「迁移」+ 无「删除」/无启用禁用） | **29 passed, 0 failed** |
 | `tools/preflight.mjs` | 追加 entry id 全树唯一、entry specifier 解析（含子路径）、入口文件存在、包契约（bundle/client/exports/exports 前置声明/require 白名单）、宿主入口可 import、旧包退净、`settings.section` 单一所有者、**profile 快照与源码逐文件一致** | 实测：换装后 **PASS 0 error / 0 warning**；负向场景（重复 id、指向已卸载包、入口缺失）**3/3 被拦下** |
 
 ### 9.2 命令侧验收矩阵（A 系列）
@@ -507,7 +552,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | A5/A6 升级 | `update` | — | ⛔/⏳ 远期（FR-06） |
 | A7 卸载 | `remove` | 目录下架；备份区有副本 | 自动化已覆盖（页面待实测） |
 | A8 完整性 | 篡改后 `verify` | 报 `modified` 及文件 | 自动化已覆盖 |
-| A9 迁移 | 迁移 + adopt | 统一根、全部入账 | ⏳ 待实现（FR-11） |
+| A9 迁移 | `/skill migrate`（批量）或页面「迁移」按钮 | 统一根、全部入账、迁移后可禁用/卸载 | ✅ 自动化已覆盖（smoke 迁移 12 项断言）；⏳ 真实环境的 `~/.agents/skills` 两技能迁移待执行留档 |
 | A10 并发 | 两窗口同时操作 | 一个执行、一个报「另一技能操作正在进行中」 | 锁已实现；⏳ 运行时双窗口实测待补 |
 | A11 降级 | catalog 不可读 | `list` 仍可用（catalog 仅作旁证） | 自动化已覆盖（catalog 可选入参） |
 | A12 升级兼容 | dsh 升级后重启 | 插件随 profile 恢复，账本完好 | ⏳ 需下次 dsh 升级时验证 |
@@ -524,6 +569,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | B4 删除 | 点「删除」→ 确认 | 备份区出现副本；清单条目删除；页面移除该项 | 控件已实现；⏳ 留档 |
 | B5 一致性 | 命令装 → 页面禁用 | 两入口状态一致；并发被锁串行化 | 同一 core + 同一锁（NFR-12）；⏳ 留档 |
 | B6 降级 | 无 webServer（headless） | 插件仍加载，`/skill` 正常，无报错 | 嵌套注入已实现；⏳ 留档 |
+| B7 迁移 | 其他根卡片点「迁移」→ 内联确认 | 技能移入受管根；卡片由「其他根只读」转为受管（可禁用/卸载） | 控件与语义已由 `tests/client-bundle.mjs` 断言（有 migrate、无 remove/enable/disable）；⏳ 实测留档 |
 
 ### 9.4 交付验收（M5）
 
@@ -552,7 +598,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | R9 | 快速「禁用→启用」被事件合并 | 中 | 同一把锁串行化 + 落位后自检 | ✅ |
 | R10 | Windows rename 瞬时错误 / 跨卷非原子 | 中 | 20→200 ms×8 重试；禁用/启用遇 `EXDEV` 直接拒绝 | ✅ |
 | R11 | 多根同名导致「移走一个 ≠ 消失」 | 中 | 按「根 + diskName」记账；页面标注其他根来源 | 部分（复核逻辑已备；`catalogSource` 字段 ⏳） |
-| R12 | 客户端契约缺少运行期自检 | 中 | `doctor` 增「客户端契约自检」（路由是否已挂载、产物格式是否仍匹配当前 dsh 版本） | ⏳ 待实现（PLAN-ALIGNMENT-v2 R3 的缓解项） |
+| R12 | 客户端契约缺少运行期自检 | 中 | `doctor` 增 `wiring:`（commands / routes / webServer / navIcon 实际接线）与 `client half:`（`lib/selfcheck.js` 的 `checkClientContract()`：lazy-CJS 形态、`id`=包名、`module/exports` 前置声明、require 白名单、`platform`）；冒烟测试含 2 项自检断言 | ✅ 已实现（v0.1.4） |
 
 ### 10.2 已裁决决策（10 项，沿用评估报告 §7）
 
@@ -577,13 +623,14 @@ v2 追加裁决：**D1 页面传输 = 自注册 HTTP 路由**（[ADR-0006](adr/0
 
 | # | 问题 | 处置建议 |
 |---|---|---|
-| O1 | **存量迁移未做**（FR-11）：`~/.agents/skills` 两技能仍显示为「其他根只读」，无法禁用/卸载 | 优先实现（M3 收尾）：一次性迁移脚本 + 自动 adopt |
-| O2 | 「设置 → 插件 → Plugin list 是否列出本插件」未单独确认 | 人工核对一次（预期可见，因为已是 bundle row） |
-| O3 | `--dry-run` 被解析但无消费者（同类问题此前 `--all` 已清理） | 要么实现预演语义，要么删掉该旗标 |
-| O4 | `doctor` 未含 git 可用性检查（v1.1 曾列为五项之一） | 视需要补入 |
-| O5 | 清单增强字段（`disabled.catalogSource` / `contentHash` / `disabledHistory`）未实现 | 随 R11/R12 一并补 |
-| O6 | 页面缺批量操作、按状态筛选、「彻底删除」入口、截断标注、无障碍审计 | P2 候选 |
-| O7 | 项目尚未建 git 仓库 / 未发布（M5 的「新机器一键安装可复现」待验证） | 建仓 → 推 GitHub → 复现验证 |
+| O1 | 「设置 → 插件 → Plugin list 是否列出本插件」未单独确认 | 人工核对一次（预期可见，因为已是 bundle row） |
+| O2 | `doctor` 未含 git 可用性检查（v1.1 曾列为五项之一） | 视需要补入（当前 `install` 会在失败文案里区分 git 缺失/凭证/超时/404） |
+| O3 | 清单增强字段（`disabled.catalogSource` / `contentHash` / `disabledHistory`）未实现 | 随 R11 一并补（`migratedFrom` 已于 v0.1.4 落地） |
+| O4 | 页面缺批量操作、按状态筛选、「彻底删除」入口、截断标注、无障碍审计 | P2 候选 |
+| O5 | 项目尚未建 git 仓库 / 未发布（M5 的「新机器一键安装可复现」待验证） | 建仓 → 推 GitHub → 复现验证（进行中） |
+
+> **已关闭**（v0.1.4）：①「存量迁移未做」——`FR-11` 已实现（命令 + 路由 + 页面按钮，冒烟 12 项断言）；
+> ②「`--dry-run` 旗标无消费者」——已由 `migrate` 消费（预览模式，不移动文件）。
 
 ---
 
@@ -593,9 +640,9 @@ v2 追加裁决：**D1 页面传输 = 自注册 HTTP 路由**（[ADR-0006](adr/0
 |---|---|---|---|
 | **M1 P0 验证** | 最小插件实测 `commands`/`skills` 注入与 slash 派发 | R1 关闭；派发端到端通过；N5（平铺/bundle 同名共存）静态确认 | ✅ **已完成（2026-08-26）** |
 | **M2a 插件标准化** | 改名、`dsh.bundle.patch`、包内 `cordis.patch.yml`、双半区声明、`dsh plugin add` 安装、清理旧手写 insert | 以标准形态安装并可启动；无重复 id；预检 PASS | ✅ **已完成（2026-09-11，换装实测 + 预检 PASS）** |
-| **M2b 核心命令** | `source`/`validate`/`manifest`/`install` + `install`/`list`/`remove`/`adopt`/`verify`/`doctor` | 离线冒烟全绿 | ✅ **已完成（45/45 冒烟）** |
-| **M3 管理命令** | `disable`/`enable`（`core/state.js`）+ 本地 `verify`/`doctor`/`adopt` | 禁用/启用双向用例通过 | ✅ **已完成**；⏳ 存量迁移（FR-11）未做 |
-| **M4 管理页面** | 沿用「设置 → 技能」座位 → 搜索 + 状态/动作控件 + 删除（二次确认）+ 收编 + 跨根只读；后端接 `/dsh-skills/*` | FR-13~FR-17 通过；B1-B6 验收 | ✅ **已完成**（25/25 客户端断言；页面已实测渲染）；⏳ B2-B6 留档 |
+| **M2b 核心命令** | `source`/`validate`/`manifest`/`install` + `install`/`list`/`remove`/`adopt`/`verify`/`doctor` | 离线冒烟全绿 | ✅ **已完成（64/64 冒烟，含迁移与自检用例）** |
+| **M3 管理命令** | `disable`/`enable`（`core/state.js`）+ 本地 `verify`/`doctor`/`adopt` + **存量迁移（`core/migrate.js`）** | 禁用/启用双向用例通过；迁移闭环通过 | ✅ **全部完成（v0.1.4）**：迁移 12 项断言覆盖「扫描→拒绝→`--dry-run`→同卷移动→`migratedFrom`→迁移后可禁用→非法拒绝」 |
+| **M4 管理页面** | 沿用「设置 → 技能」座位 → 搜索 + 状态/动作控件 + 删除（二次确认）+ 收编 + **其他根卡片「迁移」** + 跨根只读；后端接 `/dsh-skills/*`（7 条路由） | FR-13~FR-17 通过；B1-B7 验收 | ✅ **已完成**（29/29 客户端断言；页面已实测渲染）；⏳ B2-B7 真实环境留档 |
 | **M5 交付** | 端到端验收、双语文档、PRD v2.0 定稿、发布说明、旧插件退役 | 交付检查清单全绿；`dsh plugin add` 一键安装在新机器可复现 | 🔶 **部分完成**：文档与工具链就绪、旧插件已退役；⏳ 建仓/发布与 A/B 矩阵留档 |
 
 ---

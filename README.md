@@ -12,11 +12,12 @@ from **设置 → 技能**. It deliberately does not search the internet for ski
 | 能力 | 命令 | 页面 |
 |---|---|---|
 | 清单 + 本地搜索 | `/skill list` · `/skill search <text>` | 顶部搜索框（按名称/描述过滤） |
-| 禁用 / 启用 | `/skill disable <name>` · `/skill enable <name>` | 每张卡片的开关 |
+| 禁用 / 启用 | `/skill disable <name>` · `/skill enable <name>` | 每张卡片的「已启用/已禁用 + 动作按钮」 |
 | 卸载（保留备份） | `/skill remove <name> [--purge]` | 卡片上的「删除」+ 二次确认 |
 | 收编未入账技能 | `/skill adopt <name> [--source <spec>]` | 未入账卡片的「收编」 |
+| 迁移其他根的技能 | `/skill migrate [<name>] [--dry-run]` | 其他根只读卡片的「迁移」（迁入受管根后即可禁用/卸载） |
 | 本地完整性校验 | `/skill verify [<name>]` | — |
-| 诊断 | `/skill doctor` | — |
+| 诊断 | `/skill doctor` | —（技能根/隐藏区/清单/未入账/缺失/其他根 + **接线状态** + **客户端契约自检**） |
 | 安装（命令侧） | `/skill install <spec> [--force]` | 页面**不提供**安装入口 |
 | 更新 | 暂不支持（近期范围外） | — |
 

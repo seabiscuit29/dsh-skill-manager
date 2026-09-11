@@ -232,6 +232,23 @@ console.log("\nmigration from another root");
 		scan.blocked.some((entry) => entry.name === "beta" && /already present/.test(entry.reason)),
 	);
 
+	// Regression: other-root skills must be listed even when the registry catalog is
+	// unavailable — depending on `ctx.skills.list()` alone silently hid them once.
+	const withoutCatalog = buildRows({ catalog: undefined });
+	const foreignRow = withoutCatalog.rows.find((entry) => entry.name === "outsider");
+	check("a foreign-root skill is listed without any catalog", foreignRow !== undefined);
+	check("it is read-only there", foreignRow?.managed === false && foreignRow?.state === "enabled");
+	check("it names its root", /agents-skills/.test(foreignRow?.providerSource ?? ""), foreignRow?.providerSource);
+	check(
+		"an invalid foreign skill is listed but flagged",
+		withoutCatalog.rows.find((entry) => entry.name === "BrokenOutsider")?.valid === false,
+	);
+	check(
+		"a foreign duplicate does not shadow the managed row",
+		withoutCatalog.rows.filter((entry) => entry.name === "beta").length === 1 &&
+			withoutCatalog.rows.find((entry) => entry.name === "beta")?.managed === true,
+	);
+
 	const dry = await migrateAll({ dryRun: true });
 	check("dry run moves nothing", dry.dryRun === true && existsSync(join(foreign, "outsider", "SKILL.md")));
 	check("dry run still lists the candidate", dry.moved.some((entry) => entry.name === "outsider"));
