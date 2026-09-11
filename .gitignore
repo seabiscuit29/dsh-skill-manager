@@ -1,0 +1,16 @@
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.log
+
+# Dependency trees (this package ships no runtime dependencies, but a local
+# install or a future one must never be committed)
+node_modules/
+.pnpm-store/
+
+# Local scratch
+*.tmp
+*.bak
+
+# Test scratch directories, if any are ever created inside the repo
+.verify/

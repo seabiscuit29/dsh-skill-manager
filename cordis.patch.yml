@@ -1,0 +1,12 @@
+# dsh bundle patch: inserts this plugin into a profile's layer stack.
+#
+# package.json declares `dsh.bundle.patch` pointing here, so
+#   dsh plugin --profile web add <spec>
+# registers this package in the profile's `dsh.profile.bundles` and the row
+# below mounts it. No hand-written profile patch and no install script.
+#
+# The entry id must stay unique across the whole composed tree: remove any
+# hand-written profile insert with the same id before enabling this bundle.
+- insert:
+    - id: dsh-skill-manager
+      name: 'dsh-skill-manager'
