@@ -552,7 +552,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | A5/A6 升级 | `update` | — | ⛔/⏳ 远期（FR-06） |
 | A7 卸载 | `remove` | 目录下架；备份区有副本 | 自动化已覆盖（页面待实测） |
 | A8 完整性 | 篡改后 `verify` | 报 `modified` 及文件 | 自动化已覆盖 |
-| A9 迁移 | `/skill migrate`（批量）或页面「迁移」按钮 | 统一根、全部入账、迁移后可禁用/卸载 | ✅ 自动化已覆盖（smoke 迁移 12 项断言）；⏳ 真实环境的 `~/.agents/skills` 两技能迁移待执行留档 |
+| A9 迁移 | `/skill migrate`（批量）或页面「迁移」按钮 | 统一根、全部入账、迁移后可禁用/卸载 | ✅ **已实测（2026-09-12，真实环境）**：`~/.agents/skills` 两技能迁入 `~/.dsh/skills`，来源根已空、受管根 7 个、清单 7 条且两者带 `migratedFrom`、管理视图 7 行全部 `managed/tracked/enabled`；自动化另有 smoke 12 项断言 |
 | A10 并发 | 两窗口同时操作 | 一个执行、一个报「另一技能操作正在进行中」 | 锁已实现；⏳ 运行时双窗口实测待补 |
 | A11 降级 | catalog 不可读 | `list` 仍可用（catalog 仅作旁证） | 自动化已覆盖（catalog 可选入参） |
 | A12 升级兼容 | dsh 升级后重启 | 插件随 profile 恢复，账本完好 | ⏳ 需下次 dsh 升级时验证 |
@@ -569,7 +569,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | B4 删除 | 点「删除」→ 确认 | 备份区出现副本；清单条目删除；页面移除该项 | 控件已实现；⏳ 留档 |
 | B5 一致性 | 命令装 → 页面禁用 | 两入口状态一致；并发被锁串行化 | 同一 core + 同一锁（NFR-12）；⏳ 留档 |
 | B6 降级 | 无 webServer（headless） | 插件仍加载，`/skill` 正常，无报错 | 嵌套注入已实现；⏳ 留档 |
-| B7 迁移 | 其他根卡片点「迁移」→ 内联确认 | 技能移入受管根；卡片由「其他根只读」转为受管（可禁用/卸载） | 控件与语义已由 `tests/client-bundle.mjs` 断言（有 migrate、无 remove/enable/disable）；⏳ 实测留档 |
+| B7 迁移 | 其他根卡片点「迁移」→ 内联确认 | 技能移入受管根；卡片由「其他根只读」转为受管（可禁用/卸载） | ✅ **已实测（2026-09-12）**：页面迁移动作完成两个 coze 技能的迁入，卡片随后显示为受管行（可禁用/卸载）；控件与语义由 `tests/client-bundle.mjs` 断言（有 migrate、无 remove/enable/disable） |
 
 ### 9.4 交付验收（M5）
 
@@ -627,7 +627,7 @@ v2 追加裁决：**D1 页面传输 = 自注册 HTTP 路由**（[ADR-0006](adr/0
 | O2 | `doctor` 未含 git 可用性检查（v1.1 曾列为五项之一） | 视需要补入（当前 `install` 会在失败文案里区分 git 缺失/凭证/超时/404） |
 | O3 | 清单增强字段（`disabled.catalogSource` / `contentHash` / `disabledHistory`）未实现 | 随 R11 一并补（`migratedFrom` 已于 v0.1.4 落地） |
 | O4 | 页面缺批量操作、按状态筛选、「彻底删除」入口、截断标注、无障碍审计 | P2 候选 |
-| O5 | 项目尚未建 git 仓库 / 未发布（M5 的「新机器一键安装可复现」待验证） | 建仓 → 推 GitHub → 复现验证（进行中） |
+| O5 | ~~项目尚未建 git 仓库 / 未发布~~ | ✅ **已关闭（v0.1.4）**：已建仓并推送 GitHub（`seabiscuit29/dsh-skill-manager`，公开），`dsh plugin --profile web add git+https://…` 可安装；⏳ 仅剩「新机器一键安装复现」留档 |
 
 > **已关闭**（v0.1.4）：①「存量迁移未做」——`FR-11` 已实现（命令 + 路由 + 页面按钮，冒烟 12 项断言）；
 > ②「`--dry-run` 旗标无消费者」——已由 `migrate` 消费（预览模式，不移动文件）。
@@ -643,7 +643,7 @@ v2 追加裁决：**D1 页面传输 = 自注册 HTTP 路由**（[ADR-0006](adr/0
 | **M2b 核心命令** | `source`/`validate`/`manifest`/`install` + `install`/`list`/`remove`/`adopt`/`verify`/`doctor` | 离线冒烟全绿 | ✅ **已完成（64/64 冒烟，含迁移与自检用例）** |
 | **M3 管理命令** | `disable`/`enable`（`core/state.js`）+ 本地 `verify`/`doctor`/`adopt` + **存量迁移（`core/migrate.js`）** | 禁用/启用双向用例通过；迁移闭环通过 | ✅ **全部完成（v0.1.4）**：迁移 12 项断言覆盖「扫描→拒绝→`--dry-run`→同卷移动→`migratedFrom`→迁移后可禁用→非法拒绝」 |
 | **M4 管理页面** | 沿用「设置 → 技能」座位 → 搜索 + 状态/动作控件 + 删除（二次确认）+ 收编 + **其他根卡片「迁移」** + 跨根只读；后端接 `/dsh-skills/*`（7 条路由） | FR-13~FR-17 通过；B1-B7 验收 | ✅ **已完成**（29/29 客户端断言；页面已实测渲染）；⏳ B2-B7 真实环境留档 |
-| **M5 交付** | 端到端验收、双语文档、PRD v2.0 定稿、发布说明、旧插件退役 | 交付检查清单全绿；`dsh plugin add` 一键安装在新机器可复现 | 🔶 **部分完成**：文档与工具链就绪、旧插件已退役；⏳ 建仓/发布与 A/B 矩阵留档 |
+| **M5 交付** | 端到端验收、双语文档、PRD v2.0 定稿、发布说明、旧插件退役 | 交付检查清单全绿；`dsh plugin add` 一键安装在新机器可复现 | ✅ **已完成（v0.1.4，2026-09-12）**：已建 git 仓库并推送 GitHub（`seabiscuit29/dsh-skill-manager`，公开）；PRD v2.0 定稿且与代码同步（测试计数 64/64、29/29）；A9/B7 已在真实环境实测留档；旧插件已退役、残留快照已清理。⏳ 仅剩「新机器复现安装」与 A10/A12 属环境性验证（不影响交付） |
 
 ---
 
