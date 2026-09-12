@@ -21,6 +21,48 @@ from **设置 → 技能**. It deliberately does not search the internet for ski
 | 安装（命令侧） | `/skill install <spec> [--force]` | 页面**不提供**安装入口 |
 | 更新 | 暂不支持（近期范围外） | — |
 
+## 它长什么样 / What the page looks like
+
+![设置 → 技能：同一技能的启用/禁用两态对照、列表其余状态、控件注解与徽标图例](docs/images/skills-page.png)
+
+页面沿用 DSH 设置面板的「技能」席位。三条交互规则：
+
+- **状态用文字描述**：绿点＝已启用、灰点＝已禁用——它只说明"现在是什么状态"，不是控件；
+- **按钮描述动作**：已启用→「禁用」，已禁用→「启用」；另有「删除」（内联二次确认）、「收编」（未入账行）、「迁移」（其他根只读行）；
+- **禁用是可逆的**：文件不改写，只做一次同卷改名，路径可在展开详情里看到。
+
+> 图中虚线圆圈编号为**文档注解**，不是界面元素；图片由 `tools/render-ui-mock.ps1` 用插件的真实样式表生成，
+> 可随 UI 改动一键重出（见 [开发](#开发--development)）。示例数据全部为虚构 `demo-*`。
+
+## 架构一览 / How it fits together
+
+```mermaid
+flowchart TB
+  subgraph ENTRIES["两个入口，共用同一套实现"]
+    direction LR
+    CMD["/skill 命令<br/>list · search · disable · enable · remove<br/>adopt · migrate · verify · doctor · install"]
+    PAGE["设置 → 技能 页面<br/>搜索 · 状态/动作按钮 · 删除 · 收编 · 迁移"]
+  end
+  CORE["lib/core/*<br/>镜像校验 · 原子落位 · 备份 · 清单 · 单机锁"]
+  subgraph HOME["~/.dsh"]
+    ROOT["skills/<br/>受管技能根"]
+    ZONE[".skill-disabled/<br/>禁用区 · 同卷 rename"]
+    BAK[".skill-backups/<br/>卸载备份"]
+    MAN[".manifest.json<br/>source · ref · sha256 · state"]
+  end
+  CATALOG["模型技能目录"]
+  CMD --> CORE
+  PAGE -- "HTTP /dsh-skills/*<br/>同源 + 4 KiB + 锁" --> CORE
+  CORE --> ROOT
+  CORE -- "disable" --> ZONE
+  CORE -- "remove" --> BAK
+  CORE -. "记账" .-> MAN
+  ROOT -- "watcher 热更新<br/>下一轮对话生效" --> CATALOG
+```
+
+命令平面与页面**调用同一批 `lib/core/*` 函数**，因此两个入口不可能出现状态分歧；页面走的是本插件自注册在
+宿主 webServer 上的 `/dsh-skills/*` 本地路由（同源校验 + 4 KiB 请求体上限 + 与命令共用的一把锁）。
+
 ## 安装 / Install
 
 插件自带 `dsh.bundle.patch`，走官方通道即可自动挂载（无需手写 profile patch）：
@@ -49,6 +91,19 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 watcher 是异步的（chokidar `atomic` 延迟 100 ms、目录 readdir 1 s 节流），
 所以两个入口都承诺「**下一轮对话起生效**」，不会假装即时生效。
 
+```mermaid
+stateDiagram-v2
+  [*] --> enabled: install / adopt / migrate
+  enabled --> disabled: disable（移入隐藏区）
+  disabled --> enabled: enable（移回技能根）
+  enabled --> removed: remove（移入备份区）
+  disabled --> removed: remove
+  removed --> enabled: 手工恢复（备份 rename 回根 + adopt）
+  note right of disabled
+    文件不改写、可一键启用
+  end note
+```
+
 ## 数据来源 / Where the data comes from
 
 - `~/.dsh/skills/.manifest.json` —— 账本：来源、commit、逐文件 sha256、启用状态。
@@ -72,33 +127,48 @@ dsh-skill-manager/
 ├── package.json          dsh.bundle.patch + dsh.client{platform:"web"}（双半区）
 ├── cordis.patch.yml      包内自挂载
 ├── lib/
-│   ├── index.js          宿主：/skill 命令组 + 路由挂载 + 图标自愈
+│   ├── index.js          宿主：/skill 命令组 + 路由挂载 + 接线记录 + 图标自愈
 │   ├── http.js           /dsh-skills/* 本地路由（同源校验 + 4 KiB body 上限）
 │   ├── navicon.js        设置页「技能」图标自愈补丁
+│   ├── selfcheck.js      客户端契约自检（doctor 消费）
 │   ├── client.js         浏览器半区：设置 → 技能 页面
 │   └── core/             唯一实现（命令与页面共用）
 │       ├── paths.js  fsutil.js  lock.js  manifest.js
 │       ├── source.js  validate.js  scan.js
 │       ├── install.js    安装 / 卸载 / 校验
+│       ├── migrate.js    其他根 → 受管根的迁移
 │       └── state.js      启用 / 禁用 / 收编
-├── tests/smoke.mjs       离线冒烟测试（临时技能根，不碰真实部署）
+├── tests/
+│   ├── smoke.mjs         离线冒烟（临时技能根，不碰真实部署）
+│   └── client-bundle.mjs 客户端 bundle 真实执行测试（含控件语义回归）
 ├── tools/
-│   ├── preflight.mjs     重启前预检：重复 id / 入口可解析 / 入口文件存在 / 客户端产物
+│   ├── preflight.mjs     重启前预检：重复 id / 入口可解析 / 入口存在 / BOM / 客户端契约 / 快照新鲜度
+│   ├── ui-mock/          README 设计图的标记与样式抽取（mock.html + extract-css.mjs）
+│   ├── render-ui-mock.ps1 用真实样式表重出 docs/images/skills-page.png
+│   ├── resync-profile.ps1 改代码后重快照（remove + add + 预检）
 │   └── swap-profile.ps1  一键换装（备份→卸旧→清 patch→装新→预检），支持 -DryRun
-└── docs/                 PRD、评估报告、对齐方案、ADR、术语表、换装文档
+└── docs/                 PRD、评估报告、对齐方案、ADR、术语表、换装文档、设计图
 ```
 
 ## 开发 / Development
 
 ```powershell
-node --check lib/index.js          # 语法
-node tests/smoke.mjs               # 全链路冒烟（42 项断言）
+# 语法与两套离线测试
+Get-ChildItem -Recurse -File -Include *.js,*.mjs | ForEach-Object { node --check $_.FullName }
+node tests/smoke.mjs               # 宿主/核心全链路冒烟（64 项断言）
+node tests/client-bundle.mjs       # 客户端 bundle 真实执行（29 项断言，含控件语义回归）
+
+# 改过代码 → 重快照进 profile（会自动跑预检）
+powershell -ExecutionPolicy Bypass -File tools\resync-profile.ps1
+
+# UI 有改动 → 重出 README 里的设计图（用真实样式表渲染）
+powershell -ExecutionPolicy Bypass -File tools\render-ui-mock.ps1
 ```
 
 测试通过环境变量把整套路径指向临时目录，因此**永远不会**动到真实技能根：
 `DSH_SKILL_MANAGER_SKILLS_ROOT`、`DSH_SKILL_MANAGER_MANIFEST_FILE`、
 `DSH_SKILL_MANAGER_HIDDEN_DIR`、`DSH_SKILL_MANAGER_BACKUPS_DIR`、
-`DSH_SKILL_MANAGER_STAGING_DIR`。
+`DSH_SKILL_MANAGER_STAGING_DIR`、`DSH_SKILL_MANAGER_FOREIGN_ROOTS`。
 
 改完代码后重新快照到 profile 再重启（`pnpm` 对 `file:` 依赖只看路径，必须重装）：
 

@@ -488,6 +488,12 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 一键脚本：`tools/swap-profile.ps1`（备份→卸旧→清 patch→装新→预检，支持 `-DryRun`）；
 改代码后的重快照：`tools/resync-profile.ps1`（`pnpm` 对 `file:` 依赖只按路径判断「已是最新」，必须 remove + add）。
 
+**分发通道（决策记录，2026-09-12）**：交付通道为 **GitHub `git+https://` 安装**，**暂不发布到 npm**。
+理由：① npm 上 `dsh-skill-manager` 这个名字**已被第三方占用**（maintainer `gohana`，2026-08-13 起 v0.1.0–0.1.3），
+裸名安装会装到别人的包；② 发布需要先确定身份与名字（带 scope 的 `@<账号>/dsh-skill-manager` 或换名），
+属可后置的工程性工作，不阻塞交付。**注意**：任何文档都不得给出「按裸包名安装」的指引——
+全部安装路径用 `file:` 或 `git+https://`（README 已就此加警告）。若将来发布，需一并更新安装指引与本条记录。
+
 ### 8.7 与现有 UI 的关系（v2 改写）
 
 **两个插件已合并为一个包**：本插件的客户端半区接管「设置 → 技能」这个 `settings.section`

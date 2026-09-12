@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>dsh-skill-manager · 设置 → 技能（UI 设计图 v2）</title>
+<!-- Real stylesheet extracted from lib/client.js: the cards below cannot drift from the app. -->
+<link rel="stylesheet" href="app.css" />
+<style>
+	/* ---- document shell (not part of the UI) ---- */
+	body { margin: 0; padding: 20px 24px 26px; background: #f6f8fa; font: 14px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; color: #1f2328; }
+	.docTitle { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
+	.docSub { color: #8b949e; font-size: 12px; margin: 0 0 16px; }
+	.panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px 20px 18px; margin-bottom: 16px; }
+	.panel > h3 { font-size: 13px; margin: 0 0 12px; color: #57606a; font-weight: 600; letter-spacing: .02em; }
+	.shell { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px 16px; }
+	.shellBar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+	.shellCrumb { color: #8b949e; font-size: 12px; }
+	.shellClose { color: #8b949e; font-size: 16px; }
+	.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+	.compareLabel { font-size: 12px; color: #57606a; margin: 0 0 6px; font-weight: 600; }
+	.list { display: flex; flex-direction: column; gap: 10px; }
+
+	/* ---- annotation layer (clearly marked as documentation, not UI) ---- */
+	.cal { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; margin-left: 6px; border: 1px dashed #4f6ef7; color: #4f6ef7; border-radius: 99px; font-size: 11px; line-height: 1; vertical-align: middle; }
+	.legend { display: grid; grid-template-columns: 22px 1fr; gap: 6px 10px; font-size: 13px; margin: 0; }
+	.legend dt { color: #4f6ef7; font-weight: 600; margin: 0; }
+	.legend dd { margin: 0 0 4px; color: #1f2328; }
+	.badgeLegend { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; }
+	.badgeLegend span.lbl { color: #57606a; }
+	.note { color: #8b949e; font-size: 12px; margin: 10px 0 0; }
+	.flowline { font-size: 13px; color: #57606a; margin: 12px 0 0; }
+	code { background: #f6f8fa; border: 1px solid #e5e7eb; border-radius: 4px; padding: 0 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+	<p class="docTitle">dsh-skill-manager · 设置 → 技能（UI 设计图）</p>
+	<p class="docSub">卡片样式取自插件真实样式表；数据为虚构示例（demo-*）；路径以 ~ 表示；<b>虚线圆圈编号为文档注解，不是界面元素</b>。</p>
+
+	<!-- ============ ① 状态对照：同一技能的两种状态 ============ -->
+	<div class="panel">
+		<h3>① 状态对照 —— 同一技能「已启用 / 已禁用」</h3>
+		<div class="compare">
+			<div>
+				<p class="compareLabel">禁用前（默认状态）</p>
+				<div class="shell">
+					<div class="dshsm_section">
+						<ul class="dshsm_cards">
+							<li class="dshsm_card">
+								<button class="dshsm_cardHeader" type="button" aria-expanded="false">
+									<span class="dshsm_headText">
+										<span class="dshsm_name">demo-skill-alpha</span>
+										<span class="dshsm_desc">Demonstration skill used for the enabled / disabled comparison.</span>
+									</span>
+									<span class="dshsm_trailing">
+										<span class="dshsm_badge">模型可调用</span>
+										<span class="dshsm_chevron">▾</span>
+									</span>
+								</button>
+								<div class="dshsm_controls">
+									<span class="dshsm_state">已启用</span><span class="cal">1</span>
+									<button type="button">禁用</button><span class="cal">2</span>
+									<button type="button" class="dshsm_danger">删除</button><span class="cal">3</span>
+								</div>
+							</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+			<div>
+				<p class="compareLabel">点击「禁用」之后（卡片变暗，按钮改为「启用」）</p>
+				<div class="shell">
+					<div class="dshsm_section">
+						<ul class="dshsm_cards">
+							<li class="dshsm_card dshsm_cardDisabled dshsm_cardOpen">
+								<button class="dshsm_cardHeader" type="button" aria-expanded="true">
+									<span class="dshsm_headText">
+										<span class="dshsm_name">demo-skill-alpha</span>
+										<span class="dshsm_desc">Demonstration skill used for the enabled / disabled comparison.</span>
+									</span>
+									<span class="dshsm_trailing">
+										<span class="dshsm_badge dshsm_badgeWarn">已禁用</span><span class="cal">4</span>
+										<span class="dshsm_badge">模型可调用</span>
+										<span class="dshsm_chevron">▾</span>
+									</span>
+								</button>
+								<div class="dshsm_controls">
+									<span class="dshsm_state dshsm_stateOff">已禁用</span><span class="cal">1</span>
+									<button type="button">启用</button><span class="cal">2</span>
+									<button type="button" class="dshsm_danger">删除</button><span class="cal">3</span>
+								</div>
+								<div class="dshsm_body">
+									<dl class="dshsm_field"><dt>调用权限</dt><dd>对话中模型可自动加载</dd></dl>
+									<dl class="dshsm_field"><dt>状态</dt><dd>已禁用</dd></dl>
+									<dl class="dshsm_field"><dt>来源</dt><dd class="dshsm_mono">local</dd></dl>
+									<dl class="dshsm_field"><dt>位置</dt><dd class="dshsm_mono">~/.dsh/.skill-disabled/demo-skill-alpha</dd><span class="cal">5</span></dl>
+								</div>
+							</li>
+						</ul>
+					</div>
+				</div>
+			</div>
+		</div>
+		<p class="note">禁用是**可逆**的：文件不改写、只做一次同卷改名；「位置」会指向隐藏区，这就是可恢复的凭据。</p>
+	</div>
+
+	<!-- ============ ② 列表中的其余状态 ============ -->
+	<div class="panel">
+		<h3>② 列表中的其余状态与可用动作</h3>
+		<div class="shell">
+			<div class="dshsm_section">
+				<h2 class="dshsm_heading">技能</h2>
+				<p class="dshsm_intro">管理当前 DSH 已安装的技能（Skill）：查询、禁用/启用、卸载。安装与升级请在对话中使用 /skill 命令。</p>
+				<div class="dshsm_toolbar">
+					<input class="dshsm_search" type="search" placeholder="搜索名称或描述…" />
+					<span class="dshsm_count">6/6</span><span class="cal">6</span>
+				</div>
+				<ul class="dshsm_cards">
+
+					<li class="dshsm_card dshsm_cardOpen">
+						<button class="dshsm_cardHeader" type="button" aria-expanded="true">
+							<span class="dshsm_headText">
+								<span class="dshsm_name">demo-code-reviewer</span>
+								<span class="dshsm_desc">Review a diff against a checklist and report only actionable findings.</span>
+							</span>
+							<span class="dshsm_trailing">
+								<span class="dshsm_badge dshsm_badgeUserOnly">仅用户</span>
+								<span class="dshsm_chevron">▾</span>
+							</span>
+						</button>
+						<div class="dshsm_controls">
+							<span class="dshsm_state">已启用</span>
+							<button type="button">禁用</button>
+							<button type="button" class="dshsm_danger">删除</button>
+						</div>
+						<div class="dshsm_body">
+							<dl class="dshsm_field"><dt>调用权限</dt><dd>仅用户通过 /名称 手动调用</dd></dl>
+							<dl class="dshsm_field"><dt>状态</dt><dd>已启用</dd></dl>
+							<dl class="dshsm_field"><dt>来源</dt><dd class="dshsm_mono">github:example/skills#main/skills/code-reviewer @3f9a1c2d</dd></dl>
+							<dl class="dshsm_field"><dt>位置</dt><dd class="dshsm_mono">~/.dsh/skills/demo-code-reviewer</dd></dl>
+						</div>
+					</li>
+
+					<li class="dshsm_card">
+						<button class="dshsm_cardHeader" type="button" aria-expanded="false">
+							<span class="dshsm_headText">
+								<span class="dshsm_name">demo-untracked-skill</span>
+								<span class="dshsm_desc">Installed by hand; the manager has no source or hash recorded for it yet.</span>
+							</span>
+							<span class="dshsm_trailing">
+								<span class="dshsm_badge dshsm_badgeWarn">未入账</span>
+								<span class="dshsm_badge dshsm_badgeUserOnly">仅用户</span>
+								<span class="dshsm_chevron">▾</span>
+							</span>
+						</button>
+						<div class="dshsm_controls">
+							<span class="dshsm_state">已启用</span>
+							<button type="button">禁用</button>
+							<button type="button" class="dshsm_danger">删除</button>
+							<button type="button">收编</button><span class="cal">7</span>
+						</div>
+					</li>
+
+					<li class="dshsm_card">
+						<button class="dshsm_cardHeader" type="button" aria-expanded="false">
+							<span class="dshsm_headText">
+								<span class="dshsm_name">demo-external-skill</span>
+								<span class="dshsm_desc">Published from another skill root, so it is visible to the model but read-only here.</span>
+							</span>
+							<span class="dshsm_trailing">
+								<span class="dshsm_badge dshsm_badgeWarn">其他根</span>
+								<span class="dshsm_badge">模型可调用</span>
+								<span class="dshsm_chevron">▾</span>
+							</span>
+						</button>
+						<div class="dshsm_controls">
+							<span class="dshsm_count">由其他技能根提供，本页只读（不在 ~/.dsh/skills 内）</span>
+							<button type="button">迁移</button><span class="cal">8</span>
+						</div>
+					</li>
+
+					<li class="dshsm_card dshsm_cardDisabled">
+						<button class="dshsm_cardHeader" type="button" aria-expanded="false">
+							<span class="dshsm_headText">
+								<span class="dshsm_name">demo-invalid-skill</span>
+								<span class="dshsm_desc">frontmatter "name" must be kebab-case (^[a-z0-9]+(-[a-z0-9]+)*$); got "Demo_Invalid".</span>
+							</span>
+							<span class="dshsm_trailing">
+								<span class="dshsm_badge dshsm_badgeWarn">已禁用</span>
+								<span class="dshsm_badge dshsm_badgeWarn">格式非法</span>
+								<span class="dshsm_chevron">▾</span>
+							</span>
+						</button>
+						<div class="dshsm_controls">
+							<span class="dshsm_state dshsm_stateOff">已禁用</span>
+							<button type="button">启用</button>
+							<button type="button" class="dshsm_danger">删除</button>
+						</div>
+					</li>
+
+					<li class="dshsm_card">
+						<button class="dshsm_cardHeader" type="button" aria-expanded="false">
+							<span class="dshsm_headText">
+								<span class="dshsm_name">demo-report-builder</span>
+								<span class="dshsm_desc">Build a weekly progress report from a table source.</span>
+							</span>
+							<span class="dshsm_trailing">
+								<span class="dshsm_badge">模型可调用</span>
+								<span class="dshsm_chevron">▾</span>
+							</span>
+						</button>
+						<div class="dshsm_controls">
+							<span class="dshsm_state">已启用</span>
+							<button type="button">禁用</button>
+							<button type="button" class="dshsm_danger">删除</button>
+						</div>
+						<div class="dshsm_confirm">
+							<span>确认删除该技能？将保留备份副本。</span><span class="cal">9</span>
+							<button type="button" class="dshsm_danger">确认</button>
+							<button type="button">取消</button>
+						</div>
+					</li>
+
+				</ul>
+			</div>
+		</div>
+	</div>
+
+	<!-- ============ ③ 注解与图例 ============ -->
+	<div class="panel">
+		<h3>③ 注解（文档说明，非界面元素）</h3>
+		<dl class="legend">
+			<dt>1</dt><dd><b>状态文字</b>：只描述「现在是什么状态」——绿点＝已启用，灰点＝已禁用；它不随点击变化，也不是可点的控件。</dd>
+			<dt>2</dt><dd><b>动作按钮</b>：只描述「点下去会发生什么」——启用态显示「禁用」，禁用态显示「启用」。因此不会出现「勾选框已勾选 + 文案写禁用」那种读起来相反的控件。</dd>
+			<dt>3</dt><dd><b>删除</b>：移入备份区 <code>~/.dsh/.skill-backups/</code>（默认保留副本），并删除清单条目。</dd>
+			<dt>4</dt><dd><b>已禁用徽标</b>：与状态文字同步出现，便于在折叠状态下快速识别。</dd>
+			<dt>5</dt><dd><b>位置</b>：禁用后指向隐藏区 <code>~/.dsh/.skill-disabled/&lt;name&gt;</code>——这是可逆的凭据，也是「文件没被删」的证据。</dd>
+			<dt>6</dt><dd><b>搜索与计数</b>：按名称/描述本地过滤；右侧显示「筛选后/总数」。</dd>
+			<dt>7</dt><dd><b>收编</b>：仅「未入账」行出现，把已在受管根但未被记账的技能登记入账。</dd>
+			<dt>8</dt><dd><b>迁移</b>：仅「其他根」只读行出现，把技能同卷移入受管根并入账；迁移后才可禁用/卸载。</dd>
+			<dt>9</dt><dd><b>二次确认</b>：删除为卡片内联确认行（点「确认」才执行，「取消」撤销），等价两步确认。</dd>
+		</dl>
+		<p class="flowline"><b>状态流转：</b>已启用 ──「禁用」──▶ 已禁用（移入隐藏区） ──「启用」──▶ 已启用；两者都能 ──「删除」──▶ 移入备份区。</p>
+		<div class="badgeLegend" style="margin-top:10px">
+			<span class="lbl">徽标含义：</span>
+			<span class="dshsm_badge">模型可调用</span><span class="lbl">模型可自动加载</span>
+			<span class="dshsm_badge dshsm_badgeUserOnly">仅用户</span><span class="lbl">只能 /名称 手动调用</span>
+			<span class="dshsm_badge dshsm_badgeWarn">已禁用</span><span class="lbl">在隐藏区</span>
+			<span class="dshsm_badge dshsm_badgeWarn">未入账</span><span class="lbl">清单里没有</span>
+			<span class="dshsm_badge dshsm_badgeWarn">格式非法</span><span class="lbl">frontmatter 不合法，提供方不会收录</span>
+			<span class="dshsm_badge dshsm_badgeWarn">其他根</span><span class="lbl">不属于受管根</span>
+		</div>
+	</div>
+
+	<p class="note">示意图：全部数据为虚构示例（demo-*），不含任何真实技能名、描述或本机信息。</p>
+</body>
+</html>
