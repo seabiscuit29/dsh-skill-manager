@@ -67,9 +67,15 @@ flowchart TB
 
 插件自带 `dsh.bundle.patch`，走官方通道即可自动挂载（无需手写 profile patch）：
 
-```powershell
+```bash
+# Windows
 dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
-# 或从 git：dsh plugin --profile web add git+https://github.com/<owner>/dsh-skill-manager.git
+
+# macOS / Linux
+dsh plugin --profile web add file:$HOME/dev/dsh-skill-manager
+
+# 或从 git（两种系统都一样）
+dsh plugin --profile web add git+https://github.com/<owner>/dsh-skill-manager.git
 ```
 
 安装后 `dsh.profile.bundles` 会自动包含本包；**重启一次 `dsh web`** 生效。
@@ -80,6 +86,27 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 > npm 上 `dsh-skill-manager` 这个名字属于**第三方**（maintainer `gohana`，2026-08-13 起，v0.1.0–0.1.3），
 > 裸名 `dsh plugin --profile web add dsh-skill-manager` 会装到别人的包。
 > 如果本插件将来要发布到 npm，需要一个**未被占用的名字**（例如带 scope 的 `@<你的账号>/dsh-skill-manager`）。
+
+## macOS / Linux
+
+核心与平台无关（纯 Node ESM、零运行时依赖），工具链两套等价实现，CI 在
+`ubuntu-latest` / `macos-latest` / `windows-latest` 上跑**同一批测试**：
+
+| 用途 | macOS / Linux | Windows |
+|---|---|---|
+| 换装（备份→卸旧→清 patch→装新→预检） | `bash tools/swap-profile.sh`（先加 `--dry-run`） | `powershell -ExecutionPolicy Bypass -File tools\swap-profile.ps1` |
+| 改代码后重快照 | `bash tools/resync-profile.sh` | `powershell -ExecutionPolicy Bypass -File tools\resync-profile.ps1` |
+| 重出 README 设计图 | `bash tools/render-ui-mock.sh` | `powershell -ExecutionPolicy Bypass -File tools\render-ui-mock.ps1` |
+| 重启 dsh web | 在其终端 `Ctrl+C` 后重新启动 | 同左（`start-dsh-web.ps1` 只是 Windows 便捷脚本） |
+
+路径对照：受管根 `~/.dsh/skills`、禁用区 `~/.dsh/.skill-disabled`、备份区 `~/.dsh/.skill-backups`、
+其他根 `~/.agents/skills`（可用 `/skill migrate` 迁入）；staging 走 `os.tmpdir()`（macOS 上即 `$TMPDIR`）。
+前置条件：Node ≥ 20、`git`（安装/迁移用）；`pnpm` 由 `dsh plugin` 转发调用。
+
+**macOS 上的一条特有注意**：**符号链接的技能不会被收录**——提供方按 lstat 语义读取条目
+（`dsh-fs-local` 把链接报告为 `symlink`），只接受真实目录或 `.md` 文件，因此
+「把开发仓库 symlink 进 `~/.dsh/skills`」不会生效。管理器不会假装它可用：列表里标为**符号链接**、
+`doctor` 也会单列出来，想启用请改成真实拷贝（或从其他根 `/skill migrate` 迁入）。
 
 ## 禁用是怎么实现的 / How disabling works
 
@@ -143,26 +170,30 @@ dsh-skill-manager/
 │   └── client-bundle.mjs 客户端 bundle 真实执行测试（含控件语义回归）
 ├── tools/
 │   ├── preflight.mjs     重启前预检：重复 id / 入口可解析 / 入口存在 / BOM / 客户端契约 / 快照新鲜度
+│   ├── profile-patch-clean.mjs 清理 profile 里指向已退役插件的 insert（两套安装脚本共用）
 │   ├── ui-mock/          README 设计图的标记与样式抽取（mock.html + extract-css.mjs）
-│   ├── render-ui-mock.ps1 用真实样式表重出 docs/images/skills-page.png
-│   ├── resync-profile.ps1 改代码后重快照（remove + add + 预检）
-│   └── swap-profile.ps1  一键换装（备份→卸旧→清 patch→装新→预检），支持 -DryRun
+│   ├── render-ui-mock.ps1 / .sh   用真实样式表重出 docs/images/skills-page.png
+│   ├── resync-profile.ps1 / .sh   改代码后重快照（remove + add + 预检）
+│   └── swap-profile.ps1 / .sh     一键换装（备份→卸旧→清 patch→装新→预检），支持 dry run
+├── .github/workflows/ci.yml  ubuntu / macos / windows × node 20/22 跑同一批测试
 └── docs/                 PRD、评估报告、对齐方案、ADR、术语表、换装文档、设计图
 ```
 
 ## 开发 / Development
 
-```powershell
-# 语法与两套离线测试
-Get-ChildItem -Recurse -File -Include *.js,*.mjs | ForEach-Object { node --check $_.FullName }
-node tests/smoke.mjs               # 宿主/核心全链路冒烟（64 项断言）
+```bash
+# 语法与两套离线测试（macOS/Linux 与 Windows 通用，CI 亦如此）
+find lib tests tools -type f \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} \;
+node tests/smoke.mjs               # 宿主/核心全链路冒烟（72 项断言）
 node tests/client-bundle.mjs       # 客户端 bundle 真实执行（29 项断言，含控件语义回归）
 
 # 改过代码 → 重快照进 profile（会自动跑预检）
-powershell -ExecutionPolicy Bypass -File tools\resync-profile.ps1
+bash tools/resync-profile.sh                       # macOS / Linux
+powershell -File tools\resync-profile.ps1          # Windows
 
 # UI 有改动 → 重出 README 里的设计图（用真实样式表渲染）
-powershell -ExecutionPolicy Bypass -File tools\render-ui-mock.ps1
+bash tools/render-ui-mock.sh                       # macOS / Linux
+powershell -File tools\render-ui-mock.ps1          # Windows
 ```
 
 测试通过环境变量把整套路径指向临时目录，因此**永远不会**动到真实技能根：

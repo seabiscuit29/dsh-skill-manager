@@ -1,6 +1,6 @@
 {
     "name":  "dsh-skill-manager",
-    "version":  "0.1.4",
+    "version":  "0.1.5",
     "description":  "Local skill manager for DeepSeek Harness: list \u0026 search, enable/disable and uninstall installed skills, from the /skill command and the Settings - Skills page.",
     "type":  "module",
     "main":  "lib/index.js",

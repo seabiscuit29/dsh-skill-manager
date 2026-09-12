@@ -52,6 +52,9 @@ const BASE_SEED = new Set([
 /** Packages this swap must have retired. */
 const RETIRED = ["@deepseek-ai/dsh-client-ui-settings-skills", "@deepseek-ai/dsh-skill-manager"];
 
+/** `--package-only` checks the package contract alone (used by CI on every OS). */
+const PACKAGE_ONLY = args.includes("--package-only");
+
 const errors = [];
 const warnings = [];
 const notes = [];
@@ -311,6 +314,9 @@ if (!existsSync(pkgFile)) {
 }
 
 // ---------------------------------------------------------------- profile side
+if (PACKAGE_ONLY) {
+	note("--package-only: profile composition checks skipped (the package contract above is what CI verifies on every OS)");
+} else {
 console.log("\nprofile checks");
 const profilePkgFile = join(PROFILE_DIR, "package.json");
 if (!existsSync(profilePkgFile)) {
@@ -406,6 +412,7 @@ if (!existsSync(profilePkgFile)) {
 			note(`installed snapshot matches the source (${relativeFiles.length} files)`);
 		}
 	}
+}
 }
 
 // ------------------------------------------------------------------- verdict

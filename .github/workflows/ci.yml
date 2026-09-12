@@ -1,0 +1,64 @@
+# CI: prove the plugin on every OS the maintainer cares about.
+#
+# The core is plain Node ESM with no runtime dependencies, so the same suites run
+# everywhere — which is exactly why macOS/Linux compatibility can be *verified* here
+# rather than asserted: macos-latest runs the host smoke test, the client-bundle
+# execution test and the package contract check on every push.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Syntax check every module
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          while IFS= read -r file; do
+            node --check "$file" || status=1
+          done < <(find lib tests tools -type f \( -name '*.js' -o -name '*.mjs' \) | sort)
+          exit "$status"
+
+      - name: POSIX helper syntax (bash -n)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in tools/*.sh; do
+            echo "checking $file"
+            bash -n "$file"
+          done
+
+      - name: Package contract
+        shell: bash
+        run: node tools/preflight.mjs --package-only
+
+      - name: Core smoke test
+        shell: bash
+        run: node tests/smoke.mjs
+
+      - name: Client bundle execution test
+        shell: bash
+        run: node tests/client-bundle.mjs

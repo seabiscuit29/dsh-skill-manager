@@ -1,4 +1,4 @@
-﻿# swap-profile.ps1 — 把「两个旧插件」换成合并后的 dsh-skill-manager
+# swap-profile.ps1 — 把「两个旧插件」换成合并后的 dsh-skill-manager
 #
 # 顺序是安全的关键：先卸旧、再清 profile patch 里两条旧 insert、最后装新包，
 # 结束时自动跑预检（tools/preflight.mjs）。预检不通过就不要重启 dsh web。
@@ -84,28 +84,12 @@ foreach ($name in $Retired) {
 
 # ---------------------------------------------------------------- 3. 清理旧 insert
 Write-Step 3 "删除 cordis.patch.yml 里两条旧 insert（否则与新包的包内 patch 重复 id）"
-$patch = Get-Content $PatchFile -Raw
-$before = $patch
-foreach ($name in $Retired) {
-  $escaped = [regex]::Escape($name)
-  $pattern = "(?s)\r?\n*- insert:\s*\r?\n\s*- id: [^\r\n]*\r?\n\s*name: '$escaped'[^\r\n]*\r?\n?"
-  $patch = [regex]::Replace($patch, $pattern, "`n")
-}
-foreach ($name in $Retired) {
-  if ($patch -match [regex]::Escape($name)) {
-    throw "清理后 cordis.patch.yml 仍引用 $name，请手工检查：$PatchFile"
-  }
-}
-if ($DryRun) {
-  Write-Host "  将删除包含以下 name 的 insert 块：$($Retired -join ', ')"
-} elseif ($patch -eq $before) {
-  Write-Host "  没有需要删除的 insert（已清理过）" -ForegroundColor Yellow
-} else {
-  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::WriteAllText($PatchFile, $patch, $utf8NoBom)
-  Write-Host "  已清理；剩余 insert id：" -ForegroundColor Green
-  Select-String -Path $PatchFile -Pattern "^\s*- id:" | ForEach-Object { "    " + $_.Line.Trim() }
-}
+# 与 macOS/Linux 版共用同一实现（tools/profile-patch-clean.mjs），避免两套正则漂移。
+$cleanArgs = @((Join-Path $PackageDir "tools\profile-patch-clean.mjs"), "--patch", $PatchFile)
+foreach ($name in $Retired) { $cleanArgs += @("--remove", $name) }
+if ($DryRun) { $cleanArgs += "--dry-run" }
+& node @cleanArgs
+if ($LASTEXITCODE -ne 0) { throw "清理 cordis.patch.yml 失败（退出码 $LASTEXITCODE）；请手工检查：$PatchFile" }
 
 # ---------------------------------------------------------------- 4. 安装新插件
 Write-Step 4 "安装新插件（自带 dsh.bundle.patch，会自动进入 dsh.profile.bundles）"

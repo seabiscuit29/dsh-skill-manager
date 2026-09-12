@@ -5,7 +5,7 @@
 //   DSH_SKILL_MANAGER_SKILLS_ROOT / DSH_SKILL_MANAGER_MANIFEST_FILE
 //
 // Usage: node tests/smoke.mjs
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -288,6 +288,86 @@ console.log("\nself checks");
 	const contract = checkClientContract();
 	check("client contract self-check passes on this package", contract.ok === true, contract.problems.join("; "));
 	check("self-check reports the bundle it inspected", contract.notes.some((note) => /client bundle/.test(note)));
+}
+
+console.log("\nsymlinked entries (the macOS 'symlink my checkout in' case)");
+{
+	// A symlinked skill directory is never published — the provider reads entries with
+	// lstat semantics and only accepts real directories or .md files. The manager must
+	// say so instead of hiding the entry.
+	// The link points OUTSIDE the managed root, exactly like a symlinked dev checkout:
+	// a target inside the root would legitimately appear twice under one frontmatter name.
+	const target = join(scratch, "dev", "linked-target");
+	mkdirSync(target, { recursive: true });
+	writeFileSync(
+		join(target, "SKILL.md"),
+		"---\nname: linked-target\ndescription: Real bundle behind a link\n---\n\nBody\n",
+		"utf8",
+	);
+	const link = join(root, "linked-skill");
+	let created = false;
+	try {
+		symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir");
+		created = true;
+	} catch {
+		// Creating a link can be denied (Windows without developer mode); skip politely.
+		console.log("  skip  link creation is not permitted on this machine");
+	}
+	if (created) {
+		const row = buildRows().rows.find((entry) => entry.diskName === "linked-skill");
+		check("a symlinked entry is listed", row !== undefined);
+		check("it is flagged as a symlink", row?.symlink === true && row?.form === "symlink");
+		check(
+			"its note explains that the provider will not publish it",
+			/symbolic link/.test((row?.notes ?? []).join(" ")),
+		);
+		check("doctor reports symlinked entries", buildDoctor().symlinked.includes("linked-target"));
+	}
+}
+
+console.log("\nprofile patch cleaner (shared by both installers)");
+{
+	// tools/profile-patch-clean.mjs is what both swap-profile.ps1 and swap-profile.sh call,
+	// so its block matching is worth asserting directly.
+	const { execFileSync } = await import("node:child_process");
+	const { fileURLToPath } = await import("node:url");
+	const { dirname } = await import("node:path");
+	const repo = dirname(dirname(fileURLToPath(import.meta.url)));
+	const patchFile = join(scratch, "cordis.patch.yml");
+	writeFileSync(
+		patchFile,
+		[
+			"# profile patch",
+			"- insert:",
+			"    - id: keep-me",
+			"      name: '@deepseek-ai/dsh-mcp-client'",
+			"",
+			"- insert:",
+			"    - id: retire-me",
+			"      name: '@deepseek-ai/dsh-skill-manager'",
+			"",
+		].join("\n"),
+		"utf8",
+	);
+	// stdio "ignore" on purpose: the assertion is about files and exit status, and
+	// capturing a child's output through pipes is blocked in restricted sandboxes.
+	execFileSync("node", [join(repo, "tools", "profile-patch-clean.mjs"), "--patch", patchFile, "--remove", "@deepseek-ai/dsh-skill-manager"], {
+		stdio: "ignore",
+	});
+	const cleaned = readFileSync(patchFile, "utf8");
+	check("the retired insert is gone", !cleaned.includes("retire-me"));
+	check("the other insert survives", cleaned.includes("keep-me"));
+
+	let refused = "no error";
+	try {
+		execFileSync("node", [join(repo, "tools", "profile-patch-clean.mjs"), "--patch", patchFile, "--remove", "@deepseek-ai/dsh-mcp-client"], {
+			stdio: "ignore",
+		});
+	} catch (error) {
+		refused = String(error.status ?? error.message);
+	}
+	check("removing an insert succeeds a second time", refused === "no error", refused);
+	check("the second removal also took effect", !readFileSync(patchFile, "utf8").includes("keep-me"));
 }
 
 console.log("\ndoctor");
