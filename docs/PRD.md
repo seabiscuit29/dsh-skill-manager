@@ -287,7 +287,7 @@ github:<owner>/<repo>#<ref>[/<path>]
 |---|---|---|
 | **本地扫描 + 清单** | **清单的权威源** | 覆盖未入账、已禁用、`user-invocable:false`、frontmatter 非法等 `remote.skills` 看不到的行 |
 | **外来根目录自枚举**（`foreignRoots()`，默认 `~/.agents/skills`） | **其他根只读行的权威源** | 宿主**自己列目录**（`listContainerEntries` + frontmatter 摘要），不依赖任何注册表调用；因此「目录查询失败就看不到其他根技能」这类回归不会发生（v0.1.4 修复，冒烟 5 项断言守护） |
-| `ctx.skills.list()`（catalog） | **旁证 + 补齐剩余来源** | 仅用于「目录可见」标记，以及补上我们列不到的来源（项目根、内置 bundled）；**查询失败不再静默**：页面显示「技能目录查询失败，列表可能不完整」，`doctor` 报 `catalog query: FAILED — <原因>` |
+| `ctx.skills.snapshot()`（catalog，v0.1.6 起） | **旁证 + 补齐剩余来源** | 仅用于「目录可见」标记，以及补上我们列不到的来源（项目根、内置 bundled）。**必须带 scope**：`snapshot({ scope: invocation.agent, cwd: agent.session.header.cwd })`——不带 scope 的查询只读 global 层（`layers = [global, ...chainLayers(scope)]`），在宿主上下文里恒为空，会把每个健康技能都标成 `not-in-catalog`（v0.1.6 修复，见 ADR-0007）。**只有可信的观察才能出标记**：查询失败 / `complete:false` / 返回 0 条而磁盘有技能，三者都只打一行说明并省略标记；`doctor` 报 `catalog query: <N> entries, complete\|INCOMPLETE` |
 | `remote.skills`（HTTP 侧的 `skills.list`） | **不使用** | 它按调用策略过滤，看不到已禁用/仅模型可调用/未入账的技能——正是管理器要管理的行 |
 
 ### 5.4 状态机与写入顺序
@@ -543,7 +543,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 
 | 测试 | 覆盖 | 结果 |
 |---|---|---|
-| `tests/smoke.mjs` | 来源解析（6 类）、校验镜像（4 类拒绝）、清单视图、**跨根 catalog 只读行**、**外来根自枚举（无需 catalog 也能列出其他根技能，5 项断言）**、adopt+verify（含篡改检测）、禁用/启用（含幂等与隐藏区落位）、install（本地源/幂等/同名拒绝/`--force` 换源备份）、remove（备份路径/条目删除/未入账守卫）、**存量迁移（12 项：扫描/被拒原因/`--dry-run` 不移动/同卷移动两端/源副本消失/`migratedFrom`/迁移后受管且可禁用/非法拒绝）**、**客户端契约自检（2 项）**、doctor | **59 passed, 0 failed** |
+| `tests/smoke.mjs` | 来源解析（6 类）、校验镜像（4 类拒绝）、清单视图、**跨根 catalog 只读行**、**外来根自枚举（无需 catalog 也能列出其他根技能，5 项断言）**、adopt+verify（含篡改检测）、禁用/启用（含幂等与隐藏区落位）、install（本地源/幂等/同名拒绝/`--force` 换源备份）、remove（备份路径/条目删除/未入账守卫）、**存量迁移（12 项：扫描/被拒原因/`--dry-run` 不移动/同卷移动两端/源副本消失/`migratedFrom`/迁移后受管且可禁用/非法拒绝）**、**客户端契约自检（2 项）**、**目录可见性可信性（20 项：scope/cwd 透传、不完整发现、查询失败、空集、`list()`-only、abort 继续抛出、标记与说明行）**、doctor | **92 passed, 0 failed** |
 | `tests/client-bundle.mjs` | bundle 注册格式与 `id`、工厂可执行（`module/exports` 前置声明）、exports 契约、只 require 基座模块、`apply()` 注册 `settings.section id=skills order=16`、双语字典键集一致、一次渲染、**控件语义回归**（无勾选框控件；状态文字与动作文案一致）、**其他根卡片动作**（只读提示 + 有「迁移」+ 无「删除」/无启用禁用） | **29 passed, 0 failed** |
 | `tools/preflight.mjs` | 追加 entry id 全树唯一、entry specifier 解析（含子路径）、入口文件存在、包契约（bundle/client/exports/exports 前置声明/require 白名单）、宿主入口可 import、旧包退净、`settings.section` 单一所有者、**profile 快照与源码逐文件一致** | 实测：换装后 **PASS 0 error / 0 warning**；负向场景（重复 id、指向已卸载包、入口缺失）**3/3 被拦下** |
 
@@ -560,7 +560,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | A8 完整性 | 篡改后 `verify` | 报 `modified` 及文件 | 自动化已覆盖 |
 | A9 迁移 | `/skill migrate`（批量）或页面「迁移」按钮 | 统一根、全部入账、迁移后可禁用/卸载 | ✅ **已实测（2026-09-12，真实环境）**：`~/.agents/skills` 两技能迁入 `~/.dsh/skills`，来源根已空、受管根 7 个、清单 7 条且两者带 `migratedFrom`、管理视图 7 行全部 `managed/tracked/enabled`；自动化另有 smoke 12 项断言 |
 | A10 并发 | 两窗口同时操作 | 一个执行、一个报「另一技能操作正在进行中」 | 锁已实现；⏳ 运行时双窗口实测待补 |
-| A11 降级 | catalog 不可读 | `list` 仍可用（catalog 仅作旁证） | 自动化已覆盖（catalog 可选入参） |
+| A11 降级 | catalog 不可读 / 未完成 / 返回 0 条 | `list` 仍可用（catalog 仅作旁证），且**不再打出误导性的 `not-in-catalog` 标记**，只留一行原因；catalog 可选入参、scope 透传、四种不可信形态均有断言（v0.1.6，20 项） | 自动化已覆盖 |
 | A12 升级兼容 | dsh 升级后重启 | 插件随 profile 恢复，账本完好 | ⏳ 需下次 dsh 升级时验证 |
 | A13 同名冲突 | 已装后换源 `install` | 默认报错展示既有 source/ref；`--force` 换源 | 自动化已覆盖 |
 | A14 时序承诺 | 操作后立即 `list` | 文案承诺「下一轮对话起生效」，不做同步等待 | 已实现（文案固定）；⏳ 运行时留档 |
@@ -689,6 +689,6 @@ v2 追加裁决：**D1 页面传输 = 自注册 HTTP 路由**（[ADR-0006](adr/0
 | [INSTALL-MIGRATION.md](INSTALL-MIGRATION.md) | 换装步骤（脚本版/手工版）、预检能力说明、验收清单、回滚命令 |
 | [M2-PLAN.md](M2-PLAN.md) | 核心链路实施计划（模块设计、测试缝、子里程碑） |
 | `D:\DSH\PLUGIN-DEV-CHECKLIST.md` | 插件交付前检测总流程（七阶段 + 症状对照表 + 铁律） |
-| `tests/smoke.mjs` · `tests/client-bundle.mjs` | 离线冒烟（45）+ 客户端 bundle 执行测试（25） |
+| `tests/smoke.mjs` · `tests/client-bundle.mjs` | 离线冒烟（92）+ 客户端 bundle 执行测试（29） |
 | `tools/preflight.mjs` | 重启前预检（可指向任意插件：`--package <dir> --profile web`） |
 | `tools/resync-profile.ps1` · `tools/swap-profile.ps1` | 重快照 / 一键换装 |

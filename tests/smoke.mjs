@@ -28,6 +28,8 @@ const { loadManifest } = await import("../lib/core/manifest.js");
 const { validateSkill } = await import("../lib/core/validate.js");
 const { hiddenZone, backupsDir } = await import("../lib/core/paths.js");
 const { migrateAll, migrateSkill, scanMigratable } = await import("../lib/core/migrate.js");
+const { observeCatalog, catalogUsable } = await import("../lib/core/catalog.js");
+const { formatRows } = await import("../lib/core/report.js");
 
 let passed = 0;
 let failed = 0;
@@ -368,6 +370,109 @@ console.log("\nprofile patch cleaner (shared by both installers)");
 	}
 	check("removing an insert succeeds a second time", refused === "no error", refused);
 	check("the second removal also took effect", !readFileSync(patchFile, "utf8").includes("keep-me"));
+}
+
+console.log("\ncatalog visibility");
+{
+	/** One registry double: `snapshot`/`list` exactly as the host service offers them. */
+	const registry = ({ skills = [], complete = true, fail = undefined } = {}) => {
+		const calls = [];
+		const service = {
+			calls,
+			async snapshot(options) {
+				calls.push(options);
+				if (fail !== undefined) throw new Error(fail);
+				return { skills, complete };
+			},
+		};
+		return service;
+	};
+	const agent = { session: { header: { cwd: "C:\\work" } } };
+
+	// The unscoped call is what made every healthy row read "not-in-catalog": dsh
+	// reads the global layer alone without a scope, so the scope must be forwarded.
+	const scoped = registry({ skills: [{ name: "alpha" }, { name: "beta" }] });
+	const observation = await observeCatalog(scoped, { scope: agent, cwd: agent.session.header.cwd });
+	check("the catalog query carries the invoking agent as scope", scoped.calls[0]?.scope === agent);
+	check("the catalog query carries the session cwd", scoped.calls[0]?.cwd === "C:\\work");
+	check("a complete observation is usable", catalogUsable(observation, 2) === true);
+	check("names come from the observation", observation.names.has("beta") && observation.count === 2);
+
+	const partial = await observeCatalog(registry({ skills: [{ name: "alpha" }], complete: false }), { scope: agent });
+	check("an incomplete discovery is not usable for per-row claims", catalogUsable(partial, 2) === false);
+
+	const broken = await observeCatalog(registry({ fail: "registry offline" }), { scope: agent });
+	check("a failing query is recorded, not thrown", broken.error === "registry offline");
+	check("a failing query is not usable", catalogUsable(broken, 2) === false);
+
+	const empty = await observeCatalog(registry({ skills: [] }), { scope: agent });
+	check("a complete-but-empty answer cannot condemn a row", catalogUsable(empty, 2) === false);
+
+	// `list()` drops the completeness flag, so it can never back the marker.
+	const legacy = { async list() { return [{ name: "alpha" }]; } };
+	const listed = await observeCatalog(legacy, { scope: agent });
+	check("a list()-only registry reports no completeness", listed.complete === undefined);
+	check("a list()-only registry is not usable", catalogUsable(listed, 2) === false);
+
+	// Cancellation is not a verdict about the catalog.
+	let aborted = "no error";
+	try {
+		await observeCatalog(registry({ fail: "aborted" }), { signal: { aborted: true } });
+	} catch (error) {
+		aborted = error.message;
+	}
+	check("an aborted query propagates instead of being cached as an error", aborted === "aborted", aborted);
+
+	const rowOf = (name) => ({
+		name,
+		form: "bundle",
+		description: "",
+		state: "enabled",
+		managed: true,
+		tracked: true,
+		valid: true,
+		symlink: false,
+		ref: null,
+		source: null,
+	});
+	const rows = [rowOf("alpha"), rowOf("beta")];
+	const usableText = formatRows(rows, {
+		summaries: [{ name: "alpha" }],
+		names: new Set(["alpha"]),
+		complete: true,
+		count: 1,
+		error: undefined,
+	});
+	check("a visible row is marked in-catalog", usableText.includes("目录可见 in-catalog"), usableText);
+	check("an invisible row is marked not-in-catalog", usableText.includes("目录不可见 not-in-catalog"));
+	const partialText = formatRows(rows, {
+		summaries: [{ name: "alpha" }],
+		names: new Set(["alpha"]),
+		complete: false,
+		count: 1,
+		error: undefined,
+	});
+	check("an incomplete catalog prints no visibility marker", !partialText.includes("in-catalog"), partialText);
+	check("an incomplete catalog says why markers are missing", partialText.includes("incomplete"), partialText);
+	const failedText = formatRows(rows, {
+		summaries: [],
+		names: new Set(),
+		complete: undefined,
+		count: 0,
+		error: "registry offline",
+	});
+	check("a failed catalog query prints no visibility marker", !failedText.includes("in-catalog"), failedText);
+	check("a failed catalog query names the failure", failedText.includes("registry offline"), failedText);
+	const emptyText = formatRows(rows, {
+		summaries: [],
+		names: new Set(),
+		complete: true,
+		count: 0,
+		error: undefined,
+	});
+	check("a zero-entry answer prints no visibility marker", !emptyText.includes("in-catalog"), emptyText);
+	check("a zero-entry answer explains itself", emptyText.includes("no entries"), emptyText);
+	check("formatRows without an observation stays silent about the catalog", !formatRows(rows).includes("in-catalog"));
 }
 
 console.log("\ndoctor");

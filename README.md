@@ -184,7 +184,7 @@ dsh-skill-manager/
 ```bash
 # 语法与两套离线测试（macOS/Linux 与 Windows 通用，CI 亦如此）
 find lib tests tools -type f \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} \;
-node tests/smoke.mjs               # 宿主/核心全链路冒烟（72 项断言）
+node tests/smoke.mjs               # 宿主/核心全链路冒烟（92 项断言）
 node tests/client-bundle.mjs       # 客户端 bundle 真实执行（29 项断言，含控件语义回归）
 
 # 改过代码 → 重快照进 profile（会自动跑预检）
