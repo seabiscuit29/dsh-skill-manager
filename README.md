@@ -184,7 +184,7 @@ dsh-skill-manager/
 ```bash
 # 语法与两套离线测试（macOS/Linux 与 Windows 通用，CI 亦如此）
 find lib tests tools -type f \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} \;
-node tests/smoke.mjs               # 宿主/核心全链路冒烟（119 项断言）
+node tests/smoke.mjs               # 宿主/核心全链路冒烟（135 项断言）
 node tests/client-bundle.mjs       # 客户端 bundle 真实执行（29 项断言，含控件语义回归）
 
 # 改过代码 → 重快照进 profile（会自动跑预检）
@@ -209,8 +209,13 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager   # 版本号变更�
 
 ## 兼容性 / Compatibility
 
-- 已验证版本：dsh **0.1.5-rc.1** 与 **0.2.0-rc.2**（`peerDependencies` 声明为
-  `>=0.1.5-rc.1 <0.3.0-0`：两端都实测通过，0.3 的预发布版要求重新验证）。
+- 已验证版本线：dsh **0.1.5-rc.1** 与 **0.2.0-rc.2**；`peerDependencies` 声明为
+  `>=0.1.5-rc.1 <1.0.0-0`（整个 0.x 线）。**为什么不收紧上界**：闸门不满足时会**静默整包跳过**，
+  而 dsh 走 rc 通道、minor 发布频繁——收紧到某个 minor 等于每次升级都让插件凭空消失一次。
+  放宽的代价用**运行时自报**补上：`/skill doctor` 与 `/skill list`（以及页面）会打印
+  `dsh runtime: <版本> — verified | UNVERIFIED`；未验证版本线上列表顶部直接出现告警行。
+  可验证范围按 **minor 线**判定：`0.2.5` 与已验证的 `0.2.0-rc.2` 同线 → verified；
+  `0.3.0-rc.1` → UNVERIFIED（加载但明说没验证过）；`1.0.0` 起需重新验证。
 - **dsh 0.2.0 起有一道兼容性闸门**：profile 里每个 bundle 的 `@deepseek-ai/dsh*`
   peer 范围必须满足运行时版本，`peerDependenciesMeta.optional` **不豁免**；不满足时
   整个 bundle 被静默跳过——插件不挂载，且它自己的 `doctor` 永远不会运行到。范围写窄

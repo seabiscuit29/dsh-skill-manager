@@ -606,6 +606,54 @@ console.log("\ndsh home resolution");
 	else process.env.DSH_HOME = previous;
 }
 
+console.log("\ndsh runtime self-report");
+{
+	const { findDshPackage, isVerifiedRuntime, dshRuntime, runtimeLine, runtimeWarning, VERIFIED_RUNTIMES } = await import(
+		"../lib/core/runtime.js"
+	);
+
+	// A release line counts as verified, not an exact build: 0.2.5 is the same contract
+	// surface as the 0.2.0-rc.2 this plugin was tested against.
+	check("a verified release line is recognized", isVerifiedRuntime("0.2.0-rc.2") === true);
+	check("a patch release on a verified line is recognized", isVerifiedRuntime("0.2.5") === true);
+	check("a different minor is unverified", isVerifiedRuntime("0.3.0-rc.1") === false);
+	check("a different major is unverified", isVerifiedRuntime("1.0.0") === false);
+	check("an undiscovered runtime stays unknown", isVerifiedRuntime(undefined) === undefined);
+	check("the verified set is reported", Array.isArray(VERIFIED_RUNTIMES) && VERIFIED_RUNTIMES.length > 0);
+
+	// Discovery walks up to the installation that owns the running code.
+	const fakeInstall = join(scratch, "install");
+	const fakeDsh = join(fakeInstall, "node_modules", "@deepseek-ai", "dsh");
+	mkdirSync(join(fakeDsh, "lib"), { recursive: true });
+	writeFileSync(join(fakeDsh, "package.json"), JSON.stringify({ name: "@deepseek-ai/dsh", version: "0.2.4" }), "utf8");
+	writeFileSync(join(fakeDsh, "lib", "bin.js"), "// entry\n", "utf8");
+	check(
+		"the owning package is found from a file inside it",
+		findDshPackage(join(fakeDsh, "lib", "bin.js")) === join(fakeDsh, "package.json"),
+	);
+	check("the owning package is found from the install root", findDshPackage(fakeInstall) === join(fakeDsh, "package.json"));
+	check("a path outside any installation finds nothing", findDshPackage(join(scratch, "dev")) === undefined);
+
+	const verifiedLine = runtimeLine({ version: "0.2.0-rc.2", verified: true });
+	check("a verified runtime reports itself", verifiedLine.includes("0.2.0-rc.2") && verifiedLine.includes("verified"));
+	check("a verified runtime raises no warning", runtimeWarning({ version: "0.2.0-rc.2", verified: true }) === undefined);
+	check("an unverified runtime is called out", runtimeLine({ version: "0.3.0-rc.1", verified: false }).includes("UNVERIFIED"));
+	check(
+		"an unverified runtime warns",
+		/unverified dsh runtime: 0\.3\.0-rc\.1/.test(runtimeWarning({ version: "0.3.0-rc.1", verified: false }) ?? ""),
+	);
+	check(
+		"an undiscovered runtime never warns (it cannot be blamed)",
+		runtimeWarning({ version: undefined, verified: undefined }) === undefined,
+	);
+	check("an undiscovered runtime says so", runtimeLine({ version: undefined }).includes("unknown"));
+
+	// In this test process argv points at the test runner, so the profile fallback decides:
+	// either it finds a real installation or it reports unknown — never a throw.
+	const discovered = dshRuntime();
+	check("discovery never throws and reports a shape", typeof discovered === "object" && "verified" in discovered);
+}
+
 console.log("\ndoctor");
 {
 	const report = buildDoctor();

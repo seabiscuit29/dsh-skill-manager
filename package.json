@@ -1,6 +1,6 @@
 {
     "name":  "dsh-skill-manager",
-    "version":  "0.1.7",
+    "version":  "0.1.8",
     "description":  "Local skill manager for DeepSeek Harness: list \u0026 search, enable/disable and uninstall installed skills, from the /skill command and the Settings - Skills page.",
     "type":  "module",
     "main":  "lib/index.js",
@@ -27,9 +27,9 @@
             },
     "peerDependencies":  {
                              "@deepseek-ai/cordis":  "^4.0.2",
-                             "@deepseek-ai/dsh-commands":  ">=0.1.5-rc.1 <0.3.0-0",
-                             "@deepseek-ai/dsh-skill":  ">=0.1.5-rc.1 <0.3.0-0",
-                             "@deepseek-ai/dsh-host-webserver":  ">=0.1.5-rc.1 <0.3.0-0"
+                             "@deepseek-ai/dsh-commands":  ">=0.1.5-rc.1 <1.0.0-0",
+                             "@deepseek-ai/dsh-skill":  ">=0.1.5-rc.1 <1.0.0-0",
+                             "@deepseek-ai/dsh-host-webserver":  ">=0.1.5-rc.1 <1.0.0-0"
                          },
     "peerDependenciesMeta":  {
                                  "@deepseek-ai/cordis":  {

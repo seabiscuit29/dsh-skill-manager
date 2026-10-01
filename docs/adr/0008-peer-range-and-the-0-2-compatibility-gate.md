@@ -50,3 +50,30 @@ accepted（v0.1.7 实现）
   把每个一方 entry 都误报成"解析不到"。锚点现在同样来自上面的发现结果。
 - 上游若某天开始尊重 `peerDependenciesMeta.optional`，本 ADR 的"范围即承诺"策略仍然成立，
   只是可以额外把 peer 标成 optional 来降低破坏面——届时重新评估。
+
+## Amendment（v0.1.8）：上界放到整个 0.x，代价用运行时自报补
+
+v0.1.7 选的 `<0.3.0-0` 在实践中暴露了它的真实代价：dsh 走 rc 通道、minor 发布频繁，而闸门
+不满足时的表现是**静默整包跳过**——插件在升级后直接消失，且它自己的任何自检都不会运行到。
+"每个 minor 都强制重新验证"听上去严谨，实际结果是**每次升级都要有人先踩一次坑**。
+
+改判据：
+
+- peer 范围放宽为 `>=0.1.5-rc.1 <1.0.0-0`（`dsh-commands` / `dsh-skill` / `dsh-host-webserver`
+  三条同改）。用 dsh 自己的 `evaluatePluginCompatibility` 实测的边界：0.1.5-rc.1 / 0.2.0-rc.2 /
+  0.2.0 / 0.3.0-rc.1 / 0.3.0 / 0.9.9 全部**装载**，`1.0.0-rc.1` 起**跳过**——1.0 是真正的稳定性
+  边界，届时重新验证。
+- 新增 `lib/core/runtime.js`：定位运行中的 dsh（从 `process.argv[1]`、本插件模块位置、
+  profile 共享安装三处向上找 `node_modules/@deepseek-ai/dsh/package.json`），
+  按 **minor 线**判定是否已验证（`0.2.5` 与已验证的 `0.2.0-rc.2` 同线 → verified）。
+  依赖为零：不 import 任何 `@deepseek-ai` 包。
+- 自报出现在三处：`doctor` 恒打一行 `dsh runtime: … — verified|UNVERIFIED`；
+  `list`/`search` 仅在未验证时**置顶**一行告警（正常运行保持安静）；`/list` 路由把
+  `runtime` 放进载荷，页面在未验证时显示告警横幅（中英双语）。
+- 找不到运行时（`argv` 与 profile 都不指向安装）报 `unknown` 而**不告警**：
+  无法归因就不要吓人。
+
+**取舍记录**：这条改判把"失败模式"从「静默消失」换成「带着未验证的假设运行」。后者对本插件
+是可接受的，因为它的写操作全部可逆（备份区 + 同级隐藏区 + 账本，且在写之前做镜像校验），
+而前者完全没有信号。真正的护栏仍是：预检里的闸门复算、`_verify/compat-gate-authoritative.mjs`、
+以及 `doctor` 的 UNVERIFIED 行。

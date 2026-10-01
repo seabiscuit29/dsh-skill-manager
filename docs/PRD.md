@@ -425,7 +425,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | adopt | `/skill adopt <name> [--source <spec>]` | `adopted "<name>" …` | 技能不存在；校验失败 |
 | migrate | `/skill migrate [<name>] [--dry-run]` | 单个：`migrated "<name>" into <root> and recorded it in the ledger — manageable from the next turn`；批量：`已迁移 migrated: n/m` + 逐条 ✓/✗；`--dry-run` 时输出 `可迁移 migratable: n` 与 `from → to` 预览 | 外来根无此技能；frontmatter 非法；同名已存在于受管根/隐藏区/另一外来根（逐条给出原因） |
 | verify | `/skill verify [<name>]` | `✓ <name> [state] clean` 或 `! … modified=n missing=n extra=n` | 未入账提示先 adopt |
-| doctor | `/skill doctor` | 本地检查 + `wiring:` 接线状态 + `client half:` 客户端契约自检（`✗` 明细）+ `catalog query:` 目录查询状态 | 清单不可读或目录查询失败时报告原因 |
+| doctor | `/skill doctor` | 本地检查 + `wiring:` 接线状态 + `client half:` 客户端契约自检（`✗` 明细）+ `catalog query:` 目录查询状态 + `dsh runtime:` 运行时版本与**已验证/未验证**判定（v0.1.8） | 清单不可读或目录查询失败时报告原因 |
 | install | `/skill install <spec> [--force]` | `installed "<name>" @ <sha12> — visible from the next turn` | 校验失败；同名冲突；git 凭证/超时/404 |
 | update | `/skill update` | 占位提示「暂不支持更新（近期范围外）」 | — |
 
@@ -543,7 +543,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 
 | 测试 | 覆盖 | 结果 |
 |---|---|---|
-| `tests/smoke.mjs` | 来源解析（6 类）、校验镜像（4 类拒绝）、清单视图、**跨根 catalog 只读行**、**外来根自枚举（无需 catalog 也能列出其他根技能，5 项断言）**、adopt+verify（含篡改检测）、禁用/启用（含幂等与隐藏区落位）、install（本地源/幂等/同名拒绝/`--force` 换源备份）、remove（备份路径/条目删除/未入账守卫）、**存量迁移（12 项：扫描/被拒原因/`--dry-run` 不移动/同卷移动两端/源副本消失/`migratedFrom`/迁移后受管且可禁用/非法拒绝）**、**客户端契约自检（2 项）**、**目录可见性可信性（20 项：scope/cwd 透传、不完整发现、查询失败、空集、`list()`-only、abort 继续抛出、标记与说明行）**、**符号链接语义（活链按真实形态收录 / 断链才标注未收录）**、**frontmatter 镜像（重复键、带引号留白、布尔留白、纯空白 description、嵌套键冒充顶层）**、**导航图标两代自愈（0.2 命中、0.1 兼容、幂等、未知形态降级）**、**`~` 展开**、doctor | **119 passed, 0 failed** |
+| `tests/smoke.mjs` | 来源解析（6 类）、校验镜像（4 类拒绝）、清单视图、**跨根 catalog 只读行**、**外来根自枚举（无需 catalog 也能列出其他根技能，5 项断言）**、adopt+verify（含篡改检测）、禁用/启用（含幂等与隐藏区落位）、install（本地源/幂等/同名拒绝/`--force` 换源备份）、remove（备份路径/条目删除/未入账守卫）、**存量迁移（12 项：扫描/被拒原因/`--dry-run` 不移动/同卷移动两端/源副本消失/`migratedFrom`/迁移后受管且可禁用/非法拒绝）**、**客户端契约自检（2 项）**、**目录可见性可信性（20 项：scope/cwd 透传、不完整发现、查询失败、空集、`list()`-only、abort 继续抛出、标记与说明行）**、**符号链接语义（活链按真实形态收录 / 断链才标注未收录）**、**frontmatter 镜像（重复键、带引号留白、布尔留白、纯空白 description、嵌套键冒充顶层）**、**导航图标两代自愈（0.2 命中、0.1 兼容、幂等、未知形态降级）**、**`~` 展开**、**dsh 运行时自报（16 项：minor 线判定、三处锚点发现、verified/UNVERIFIED/unknown 三条文案、未发现时不告警）**、doctor | **135 passed, 0 failed** |
 | `tests/client-bundle.mjs` | bundle 注册格式与 `id`、工厂可执行（`module/exports` 前置声明）、exports 契约、只 require 基座模块、`apply()` 注册 `settings.section id=skills order=16`、双语字典键集一致、一次渲染、**控件语义回归**（无勾选框控件；状态文字与动作文案一致）、**其他根卡片动作**（只读提示 + 有「迁移」+ 无「删除」/无启用禁用） | **29 passed, 0 failed** |
 | `tools/preflight.mjs` | 追加 entry id 全树唯一、entry specifier 解析（含子路径）、入口文件存在、包契约（bundle/client/exports/exports 前置声明/require 白名单）、宿主入口可 import、旧包退净、`settings.section` 单一所有者、**profile 快照与源码逐文件一致** | 实测：换装后 **PASS 0 error / 0 warning**；负向场景（重复 id、指向已卸载包、入口缺失）**3/3 被拦下** |
 
@@ -689,6 +689,6 @@ v2 追加裁决：**D1 页面传输 = 自注册 HTTP 路由**（[ADR-0006](adr/0
 | [INSTALL-MIGRATION.md](INSTALL-MIGRATION.md) | 换装步骤（脚本版/手工版）、预检能力说明、验收清单、回滚命令 |
 | [M2-PLAN.md](M2-PLAN.md) | 核心链路实施计划（模块设计、测试缝、子里程碑） |
 | `D:\DSH\PLUGIN-DEV-CHECKLIST.md` | 插件交付前检测总流程（七阶段 + 症状对照表 + 铁律） |
-| `tests/smoke.mjs` · `tests/client-bundle.mjs` | 离线冒烟（92）+ 客户端 bundle 执行测试（29） |
+| `tests/smoke.mjs` · `tests/client-bundle.mjs` | 离线冒烟（135）+ 客户端 bundle 执行测试（29） |
 | `tools/preflight.mjs` | 重启前预检（可指向任意插件：`--package <dir> --profile web`） |
 | `tools/resync-profile.ps1` · `tools/swap-profile.ps1` | 重快照 / 一键换装 |
