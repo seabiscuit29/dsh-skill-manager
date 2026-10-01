@@ -294,9 +294,11 @@ console.log("\nself checks");
 
 console.log("\nsymlinked entries (the macOS 'symlink my checkout in' case)");
 {
-	// A symlinked skill directory is never published — the provider reads entries with
-	// lstat semantics and only accepts real directories or .md files. The manager must
-	// say so instead of hiding the entry.
+	// A symlinked skill IS published: the provider lists entries with `stat` semantics
+	// (`dsh-fs-local` types a child by what the link points at), so the manager must
+	// report it as a working skill — telling a user their live skill is invisible is
+	// worse than saying nothing. Only a link whose target is gone is unpublished, and
+	// that one must be called out loudly.
 	// The link points OUTSIDE the managed root, exactly like a symlinked dev checkout:
 	// a target inside the root would legitimately appear twice under one frontmatter name.
 	const target = join(scratch, "dev", "linked-target");
@@ -318,12 +320,37 @@ console.log("\nsymlinked entries (the macOS 'symlink my checkout in' case)");
 	if (created) {
 		const row = buildRows().rows.find((entry) => entry.diskName === "linked-skill");
 		check("a symlinked entry is listed", row !== undefined);
-		check("it is flagged as a symlink", row?.symlink === true && row?.form === "symlink");
+		check("a live link keeps its real form (bundle)", row?.form === "bundle");
+		check("it is flagged as a symlink", row?.symlink === true);
+		check("it is NOT flagged as broken", row?.brokenSymlink === false);
 		check(
-			"its note explains that the provider will not publish it",
-			/symbolic link/.test((row?.notes ?? []).join(" ")),
+			"its note says the provider follows it",
+			/follows it with stat semantics/.test((row?.notes ?? []).join(" ")),
 		);
-		check("doctor reports symlinked entries", buildDoctor().symlinked.includes("linked-target"));
+		check("it is not marked invalid frontmatter", row?.valid === true);
+		check("doctor lists it as a followed symlink", buildDoctor().symlinked.includes("linked-target"));
+		check("doctor does not call it broken", !buildDoctor().brokenSymlinks.includes("linked-target"));
+
+		// The unpublished case is the one that must be surfaced: a link whose target is gone.
+		const dangling = join(root, "dangling-skill");
+		let danglingCreated = false;
+		try {
+			symlinkSync(join(scratch, "dev", "does-not-exist"), dangling, process.platform === "win32" ? "junction" : "dir");
+			danglingCreated = true;
+		} catch {
+			console.log("  skip  dangling link creation is not permitted on this machine");
+		}
+		if (danglingCreated) {
+			const broken = buildRows().rows.find((entry) => entry.diskName === "dangling-skill");
+			check("a dangling link is surfaced", broken !== undefined);
+			check("a dangling link is flagged broken", broken?.brokenSymlink === true);
+			check("a dangling link is flagged as a symlink", broken?.symlink === true);
+			check(
+				"its note explains the provider never publishes it",
+				/never publishes this entry/.test((broken?.notes ?? []).join(" ")),
+			);
+			check("doctor reports it as broken", buildDoctor().brokenSymlinks.includes("dangling-skill"));
+		}
 	}
 }
 
@@ -473,6 +500,110 @@ console.log("\ncatalog visibility");
 	check("a zero-entry answer prints no visibility marker", !emptyText.includes("in-catalog"), emptyText);
 	check("a zero-entry answer explains itself", emptyText.includes("no entries"), emptyText);
 	check("formatRows without an observation stays silent about the catalog", !formatRows(rows).includes("in-catalog"));
+}
+
+console.log("\nvalidation mirrors the provider (the install-it-and-it-vanishes cases)");
+{
+	const { validateSkill } = await import("../lib/core/validate.js");
+	const { parseFrontmatter, frontmatterBoolean } = await import("../lib/core/validate.js");
+	const caseDir = join(scratch, "cases");
+	const write = (name, frontmatter) => {
+		const dir = join(caseDir, name);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "SKILL.md"), `---\n${frontmatter}\n---\n\nBody\n`, "utf8");
+		return dir;
+	};
+
+	// A repeated YAML key makes the provider's parser throw, so the skill is dropped.
+	// Keeping the last value (the old behaviour) installed a skill nobody can see.
+	const duplicate = write("dup-key", "name: dup-key\nname: other-key\ndescription: d");
+	check("a duplicated frontmatter key is rejected", validateSkill(duplicate).ok === false);
+	check(
+		"the duplicate-key error names the field",
+		/repeats "name"/.test((validateSkill(duplicate).errors ?? []).map((e) => e.message).join(" ")),
+	);
+	check("the parser reports the duplicate", parseFrontmatter("---\nname: a\nname: b\n---\n").duplicateKeys.includes("name"));
+
+	// No trimming: `name: " foo "` is the name ` foo ` for the provider too.
+	const padded = write("padded-name", 'name: " padded-name "\ndescription: d');
+	check("a quoted padded name is rejected", validateSkill(padded).ok === false);
+
+	// Same rule for booleans: the provider lower-cases the raw scalar, never trims it.
+	check("a padded boolean literal is rejected", frontmatterBoolean(" true ") === undefined);
+	check("an unpadded boolean literal is accepted", frontmatterBoolean("YES") === true);
+	const paddedBool = write("padded-bool", 'name: padded-bool\ndescription: d\ndisable-model-invocation: " true "');
+	check("a padded boolean makes the skill invalid", validateSkill(paddedBool).ok === false);
+	check("a plain boolean keeps the skill valid", validateSkill(write("plain-bool", "name: plain-bool\ndescription: d\ndisable-model-invocation: true")).ok === true);
+
+	// The provider only requires a non-empty string, so a whitespace-only description is
+	// published; refusing it here reported a live skill as invalid.
+	const spaces = write("space-desc", 'name: space-desc\ndescription: "   "');
+	check("a whitespace-only description is accepted, like the provider", validateSkill(spaces).ok === true);
+
+	// A nested key is not a top-level one: `metadata: { name: x }` must not impersonate
+	// the skill's own name (the provider would drop a skill with no top-level name).
+	const nested = write("nested-name", "metadata:\n  name: nested-name\ndescription: d");
+	check("a nested name does not satisfy the top-level name", validateSkill(nested).ok === false);
+}
+
+console.log("\nnav icon self-heal (generation-aware)");
+{
+	const { ensureNavIconPatch } = await import("../lib/navicon.js");
+	const previousHome = process.env.DSH_HOME;
+	const fakeHome = join(scratch, "navhome");
+	const shell = join(fakeHome, "profiles", "web", "node_modules", "@deepseek-ai", "dsh-client-ui-settings-general", "lib");
+	mkdirSync(shell, { recursive: true });
+	const shellFile = join(shell, "client.js");
+	process.env.DSH_HOME = fakeHome;
+	// The bundle shape both generations share; only the icon names differ.
+	const bundleFor = (pluginsIcon) =>
+		`function navIcon(id) {\n\tif (id === "plugins") return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.${pluginsIcon}, {\n\t\tclassName: SettingsRoot_module_css_default.navIcon,\n\t\tsize: 16\n\t});\n\treturn (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSettingsOutlineMedium, {\n\t\tclassName: SettingsRoot_module_css_default.navIcon,\n\t\tsize: 16\n\t});\n}\n`;
+
+	// dsh 0.2 generation: `…Medium` icon names.
+	writeFileSync(shellFile, bundleFor("IconPersonalizationOutlineMedium"), "utf8");
+	const patched = ensureNavIconPatch();
+	const afterPatch = readFileSync(shellFile, "utf8");
+	check("the 0.2 shell generation is patched", patched.status === "patched", JSON.stringify(patched));
+	check("the patch reports which generation it matched", patched.generation === "0.2+");
+	check("it inserts the icon that generation ships", afterPatch.includes("IconSkillOutlineMedium, {"));
+	check("it does not insert the retired numeric icon", !afterPatch.includes("IconSkillOutline16"));
+	check("the inserted branch is valid JS", (() => {
+		try {
+			new Function(afterPatch.replace(/^/, ""));
+			return true;
+		} catch {
+			return false;
+		}
+	})());
+	check("a second run is idempotent", ensureNavIconPatch().status === "ok");
+	check("a second run adds nothing", readFileSync(shellFile, "utf8") === afterPatch);
+
+	// dsh 0.1 generation: numeric icon names, the shape the plugin shipped against.
+	writeFileSync(shellFile, bundleFor("IconPersonalizationOutline16"), "utf8");
+	const legacy = ensureNavIconPatch();
+	check("the 0.1 shell generation is still patched", legacy.status === "patched", JSON.stringify(legacy));
+	check("the legacy patch keeps the numeric icon", readFileSync(shellFile, "utf8").includes("IconSkillOutline16, {"));
+
+	// An unknown shell shape must degrade to a reported status, never a crash.
+	writeFileSync(shellFile, "function navIcon(id) { return null; }\n", "utf8");
+	check("an unrecognized shell reports anchor-missing", ensureNavIconPatch().status === "anchor-missing");
+
+	if (previousHome === undefined) delete process.env.DSH_HOME;
+	else process.env.DSH_HOME = previousHome;
+}
+
+console.log("\ndsh home resolution");
+{
+	const { dshHome } = await import("../lib/core/paths.js");
+	const previous = process.env.DSH_HOME;
+	process.env.DSH_HOME = "~/some-dsh-home";
+	const expanded = dshHome();
+	check("a leading ~ is expanded", !expanded.startsWith("~"));
+	check("the expanded home is absolute", /^[A-Za-z]:[\\/]|^\//.test(expanded));
+	process.env.DSH_HOME = "relative-home";
+	check("a relative DSH_HOME is resolved to an absolute path", /^[A-Za-z]:[\\/]|^\//.test(dshHome()));
+	if (previous === undefined) delete process.env.DSH_HOME;
+	else process.env.DSH_HOME = previous;
 }
 
 console.log("\ndoctor");

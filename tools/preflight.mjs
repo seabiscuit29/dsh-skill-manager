@@ -20,6 +20,7 @@
 //   node tools/preflight.mjs
 //   node tools/preflight.mjs --profile web --package D:/DSH/dsh-skill-manager
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -105,33 +106,41 @@ function parsePatch(file) {
 		const line = rawLine.replace(/#.*$/, "").trimEnd();
 		if (line.trim() === "") continue;
 		const indent = indentOf(line);
-		const idMatch = /^\s*-\s*id:\s*['"]?([^'"]+)['"]?\s*$/.exec(line) ?? /^\s*id:\s*['"]?([^'"]+)['"]?\s*$/.exec(line);
+		const entryId = /^\s*-\s*id:\s*['"]?([^'"]+)['"]?\s*$/.exec(line);
+		const plainId = /^\s*id:\s*['"]?([^'"]+)['"]?\s*$/.exec(line);
 		const nameMatch = /^\s*name:\s*['"]?([^'"]+)['"]?\s*$/.exec(line);
 
 		if (indent === 0 && line.startsWith("- ")) {
 			flush();
-			item = { insert: false, ownId: undefined, entries: [] };
+			item = { insert: false, ownId: undefined, entries: [], entryIndent: undefined };
 			if (/^-\s*insert:\s*$/.test(line)) {
 				item.insert = true;
 				continue;
 			}
-			if (idMatch !== null) item.ownId = idMatch[1].trim();
+			if (entryId !== null) item.ownId = entryId[1].trim();
 			continue;
 		}
 		if (item === null) continue;
-		if (/^\s*insert:\s*$/.test(line)) {
-			item.insert = true;
+		if (item.insert !== true) {
+			if (/^\s*insert:\s*$/.test(line)) {
+				item.insert = true;
+				continue;
+			}
+			if (indent >= 2 && plainId !== null && item.ownId === undefined) item.ownId = plainId[1].trim();
 			continue;
 		}
-		if (indent >= 4 && idMatch !== null) {
-			item.entries.push({ id: idMatch[1].trim(), name: undefined });
+		// Inside an insert block, only the block's DIRECT entries are appended. A row may
+		// nest its own child list — a dsh 0.2 agent preset carries `config.plugins`, and
+		// those ids belong to that row, not to the profile root. Counting them appended
+		// reported hundreds of phantom duplicate ids.
+		if (entryId !== null) {
+			if (item.entryIndent === undefined) item.entryIndent = indent;
+			if (indent === item.entryIndent) item.entries.push({ id: entryId[1].trim(), name: undefined });
 			continue;
 		}
-		if (indent >= 4 && nameMatch !== null && item.entries.length > 0) {
+		if (nameMatch !== null && item.entries.length > 0 && indent === item.entryIndent + 2) {
 			item.entries[item.entries.length - 1].name = nameMatch[1].trim();
-			continue;
 		}
-		if (indent >= 2 && idMatch !== null && item.ownId === undefined) item.ownId = idMatch[1].trim();
 	}
 	flush();
 	return { file, appended, overrides, parsed: true };
@@ -196,6 +205,104 @@ function checkEntrySpecifier(label, specifier, context) {
 console.log(`preflight: package=${PACKAGE_DIR}`);
 console.log(`preflight: profile=${PROFILE_DIR}\n`);
 
+// ------------------------------------------------ dsh 0.2+ compatibility gate
+/**
+ * Locate an installed dsh, so the compatibility gate can be evaluated for real.
+ * Order: `--dsh-root` / `$DSH_INSTALL_ROOT`, the profile, then the npx cache
+ * directories an `npx -y @deepseek-ai/dsh` install lands in (newest first).
+ * @returns the `@deepseek-ai/dsh` package directory, or undefined.
+ */
+function locateDshRoot() {
+	const explicit = arg("dsh-root", process.env.DSH_INSTALL_ROOT);
+	const candidates = [];
+	if (typeof explicit === "string" && explicit.trim() !== "") candidates.push(resolve(explicit.trim()));
+	candidates.push(join(PROFILE_DIR, "node_modules", "@deepseek-ai", "dsh"));
+	const caches = [
+		process.env.npm_config_cache,
+		process.env.LOCALAPPDATA === undefined ? undefined : join(process.env.LOCALAPPDATA, "npm-cache"),
+		join(homedir(), ".npm"),
+		join(homedir(), "AppData", "Local", "npm-cache"),
+		"D:\\npm-cache",
+	].filter((entry) => typeof entry === "string" && entry !== "" && existsSync(entry));
+	const found = [];
+	for (const cache of caches) {
+		const npx = join(cache, "_npx");
+		if (!existsSync(npx)) continue;
+		for (const entry of readdirSync(npx)) {
+			const dir = join(npx, entry, "node_modules", "@deepseek-ai", "dsh");
+			if (existsSync(join(dir, "package.json"))) found.push(dir);
+		}
+	}
+	// Newest install wins: a machine can keep several npx checkouts around.
+	found.sort((left, right) => statSync(join(right, "package.json")).mtimeMs - statSync(join(left, "package.json")).mtimeMs);
+	return [...candidates, ...found].find((dir) => existsSync(join(dir, "package.json")));
+}
+
+/**
+ * Fail when dsh would refuse to load this bundle.
+ *
+ * dsh 0.2.0 added a gate before any patch layer is applied: every
+ * `@deepseek-ai/dsh*` entry in `peerDependencies` must satisfy the running version,
+ * `peerDependenciesMeta.optional` is ignored, and a mismatch makes the whole bundle
+ * a no-op — the plugin silently never mounts, and nothing in the plugin's own doctor
+ * can report it, because doctor never runs. A `^0.1.5-rc.1` range cost exactly that.
+ * @param pkg - the parsed package.json of the plugin.
+ */
+async function checkCompatibilityGate(pkg) {
+	const root = locateDshRoot();
+	if (root === undefined) {
+		note("compatibility gate: not evaluated (no dsh install located; pass --dsh-root <dir>)");
+		return;
+	}
+	const runtime = readJson(join(root, "package.json"))?.version;
+	if (typeof runtime !== "string") {
+		note("compatibility gate: not evaluated (the located dsh package has no version)");
+		return;
+	}
+	const manifest = { name: pkg.name, version: pkg.version, peerDependencies: pkg.peerDependencies ?? {} };
+	const scopeDir = dirname(root);
+	const peers = Object.entries(manifest.peerDependencies).filter(
+		([peer]) => peer === "@deepseek-ai/dsh" || peer.startsWith("@deepseek-ai/dsh-"),
+	);
+	if (peers.length === 0) {
+		note(`compatibility gate: PASS (dsh ${runtime}; no @deepseek-ai/dsh* peers declared, so the bundle always loads)`);
+		return;
+	}
+
+	let issue;
+	let mechanism = "the real dsh implementation";
+	const bootEntry = join(scopeDir, "dsh-app-boot", "lib", "index.js");
+	try {
+		if (!existsSync(bootEntry)) throw new Error("dsh-app-boot is not installed next to dsh");
+		const boot = await import(pathToFileURL(bootEntry).href);
+		if (typeof boot.evaluatePluginCompatibility !== "function") throw new Error("evaluatePluginCompatibility is not exported");
+		issue = boot.evaluatePluginCompatibility(manifest, {}, runtime);
+	} catch (error) {
+		// Same rule, evaluated locally: this is the shape the gate implements.
+		mechanism = `a local re-implementation (${error.message})`;
+		try {
+			const semver = createRequire(join(root, "package.json"))("semver");
+			const unsatisfied = peers.filter(([, range]) => !semver.satisfies(runtime, range, { includePrerelease: true }));
+			issue = unsatisfied.length === 0 ? undefined : { peers: Object.fromEntries(unsatisfied) };
+		} catch (semverError) {
+			note(`compatibility gate: not evaluated (${semverError.message})`);
+			return;
+		}
+	}
+
+	if (issue === undefined) {
+		note(`compatibility gate: PASS (dsh ${runtime} satisfies ${peers.length} peer range(s), checked with ${mechanism})`);
+		return;
+	}
+	fail(
+		`compatibility gate: dsh ${runtime} SKIPS this bundle — peerDependencies ${JSON.stringify(issue.peers)} do not accept it, ` +
+			"and optional peers are not exempt (checked with " +
+			mechanism +
+			"). dsh appends no entry for it, so the plugin never mounts and nothing it logs can say so. " +
+			`Widen the ranges (e.g. ">=<oldest-verified> <next-minor>-0") or grant the exact-version exemption for ${pkg.name}@${pkg.version} with \`dsh plugin allow-version\`.`,
+	);
+}
+
 // ---------------------------------------------------------------- package side
 console.log("package checks");
 const pkgFile = join(PACKAGE_DIR, "package.json");
@@ -234,23 +341,30 @@ if (!existsSync(pkgFile)) {
 		}
 
 		// 2. bundle declaration: the single criterion for auto-mounting.
+		// dsh 0.2 accepts a path or a list of paths here (`bundlePatchFiles`).
 		const patchRel = pkg.dsh?.bundle?.patch;
-		if (typeof patchRel !== "string") {
+		const patchFiles = typeof patchRel === "string" ? [patchRel] : Array.isArray(patchRel) ? patchRel : undefined;
+		if (patchFiles === undefined || patchFiles.some((file) => typeof file !== "string")) {
 			fail("package.json does not declare dsh.bundle.patch (dsh plugin add would install it as a plain dependency)");
-		} else if (!existsSync(join(PACKAGE_DIR, patchRel))) {
-			fail(`dsh.bundle.patch points at a missing file: ${patchRel}`);
 		} else {
-			const patch = parsePatch(join(PACKAGE_DIR, patchRel));
-			if (patch.appended.length === 0) fail(`${patchRel} appends no entry`);
-			for (const entry of patch.appended) {
-				if (entry.name === undefined) {
-					fail(`${patchRel}: appended entry "${entry.id}" has no name`);
-					continue;
+			const missing = patchFiles.filter((file) => !existsSync(join(PACKAGE_DIR, file)));
+			if (missing.length > 0) {
+				fail(`dsh.bundle.patch points at a missing file: ${missing.join(", ")}`);
+			} else {
+				for (const file of patchFiles) {
+					const patch = parsePatch(join(PACKAGE_DIR, file));
+					if (patch.appended.length === 0) fail(`${file} appends no entry`);
+					for (const entry of patch.appended) {
+						if (entry.name === undefined) {
+							fail(`${file}: appended entry "${entry.id}" has no name`);
+							continue;
+						}
+						if (entry.name !== name) {
+							warn(`${file}: entry "${entry.id}" mounts "${entry.name}" but the package is "${name}"`);
+						}
+						note(`bundle appends entry: id=${entry.id} name=${entry.name}`);
+					}
 				}
-				if (entry.name !== name) {
-					warn(`${patchRel}: entry "${entry.id}" mounts "${entry.name}" but the package is "${name}"`);
-				}
-				note(`bundle appends entry: id=${entry.id} name=${entry.name}`);
 			}
 		}
 
@@ -310,6 +424,10 @@ if (!existsSync(pkgFile)) {
 		} catch (error) {
 			fail(`host entry failed to import: ${error.message}`);
 		}
+
+		// 5. dsh 0.2+ refuses to mount a bundle whose @deepseek-ai/dsh* peers exclude
+		// the running version. Checked here because the failure is otherwise invisible.
+		await checkCompatibilityGate(pkg);
 	}
 }
 
@@ -337,7 +455,25 @@ if (!existsSync(profilePkgFile)) {
 		warn("the new package is installed but not in dsh.profile.bundles — run: dsh plugin --profile web add <spec>");
 	}
 
-	const context = { installAnchor: null, profileDir: PROFILE_DIR };
+	// The loader resolves an entry's package against the *installation* first and the
+	// profile second. In dsh 0.2 the installation is the npx checkout, so the anchor has
+	// to be discovered: leaving it null made every first-party entry look unresolvable.
+	const dshRoot = locateDshRoot();
+	const installAnchor = dshRoot === undefined ? null : resolve(dshRoot, "..", "..", "..");
+	if (installAnchor === null) {
+		warn("no dsh installation located: entry packages are resolved against the profile only (pass --dsh-root <dir>)");
+	} else {
+		note(`installation anchor: ${installAnchor}`);
+	}
+	const legacyShared = join(dirname(PROFILE_DIR), "node_modules", "@deepseek-ai", "dsh");
+	if (installAnchor !== null && existsSync(join(legacyShared, "package.json"))) {
+		const legacyVersion = readJson(join(legacyShared, "package.json"))?.version;
+		note(
+			`legacy shared install still present: ${legacyShared} (dsh ${legacyVersion ?? "?"}) — harmless while the installation resolves first, but it is what a stale layout looks like`,
+		);
+	}
+
+	const context = { installAnchor, profileDir: PROFILE_DIR };
 	const appendedIds = new Map();
 	const collectLayer = (label, patchFile) => {
 		const patch = parsePatch(patchFile);
@@ -365,12 +501,22 @@ if (!existsSync(profilePkgFile)) {
 			continue;
 		}
 		const bundlePkg = readJson(join(dir, "package.json"));
+		// dsh 0.2 accepts a path OR a list of paths here (`bundlePatchFiles`), and
+		// @deepseek-ai/dsh-web-app itself uses the list form — assuming a string made
+		// this check crash on its own profile instead of reporting anything.
 		const patchRel = bundlePkg?.dsh?.bundle?.patch;
 		if (patchRel === undefined) {
 			fail(`bundle "${bundleName}" declares no dsh.bundle.patch — the launcher throws on startup`);
 			continue;
 		}
-		collectLayer(`bundle ${bundleName}`, join(dir, patchRel));
+		const patchFiles = typeof patchRel === "string" ? [patchRel] : Array.isArray(patchRel) ? patchRel : undefined;
+		if (patchFiles === undefined || patchFiles.some((file) => typeof file !== "string")) {
+			fail(
+				`bundle "${bundleName}" declares dsh.bundle.patch as neither a path nor a list of paths — the launcher throws on startup`,
+			);
+			continue;
+		}
+		for (const file of patchFiles) collectLayer(`bundle ${bundleName}`, join(dir, file));
 	}
 
 	collectLayer("profile cordis.patch.yml", join(PROFILE_DIR, "cordis.patch.yml"));

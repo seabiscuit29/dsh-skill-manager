@@ -184,7 +184,7 @@ dsh-skill-manager/
 ```bash
 # 语法与两套离线测试（macOS/Linux 与 Windows 通用，CI 亦如此）
 find lib tests tools -type f \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} \;
-node tests/smoke.mjs               # 宿主/核心全链路冒烟（92 项断言）
+node tests/smoke.mjs               # 宿主/核心全链路冒烟（119 项断言）
 node tests/client-bundle.mjs       # 客户端 bundle 真实执行（29 项断言，含控件语义回归）
 
 # 改过代码 → 重快照进 profile（会自动跑预检）
@@ -209,7 +209,13 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager   # 版本号变更�
 
 ## 兼容性 / Compatibility
 
-- 目标版本：dsh **0.1.5-rc.1**（`peerDependencies` 与同期 rc 对齐）。
+- 已验证版本：dsh **0.1.5-rc.1** 与 **0.2.0-rc.2**（`peerDependencies` 声明为
+  `>=0.1.5-rc.1 <0.3.0-0`：两端都实测通过，0.3 的预发布版要求重新验证）。
+- **dsh 0.2.0 起有一道兼容性闸门**：profile 里每个 bundle 的 `@deepseek-ai/dsh*`
+  peer 范围必须满足运行时版本，`peerDependenciesMeta.optional` **不豁免**；不满足时
+  整个 bundle 被静默跳过——插件不挂载，且它自己的 `doctor` 永远不会运行到。范围写窄
+  （例如钉死某个 rc）就会触发。`tools/preflight.mjs` 现在会调用 dsh 自己的实现复算
+  这条闸门，重启前就能拦下。
 - 客户端半区只 require 基座模块（`react`、`react/jsx-runtime`，可选
   `@deepseek-ai/dsh-client-ui-primitives`），不依赖任何业务命名空间——把
   dsh 升级导致的客户端契约漂移风险压到最低（0.1.5 升级曾使旧页面的
@@ -217,6 +223,8 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager   # 版本号变更�
 - 宿主半区不 import 任何 `@deepseek-ai` 包，只使用 `ctx.commands` / `ctx.skills` /
   可选 `ctx.webServer`。`webServer` 用嵌套注入，因此 `headless` / `tui` profile
   下插件仍可加载，只是没有页面路由。
+- 图标类自带降级：`lib/navicon.js` 与页面 chevron 都只把图标当装饰，名字对不上时
+  退回文字字形/默认齿轮，不影响功能。
 
 ## 已知限制 / Known limits
 
