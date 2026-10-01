@@ -561,7 +561,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | A9 迁移 | `/skill migrate`（批量）或页面「迁移」按钮 | 统一根、全部入账、迁移后可禁用/卸载 | ✅ **已实测（2026-09-12，真实环境）**：`~/.agents/skills` 两技能迁入 `~/.dsh/skills`，来源根已空、受管根 7 个、清单 7 条且两者带 `migratedFrom`、管理视图 7 行全部 `managed/tracked/enabled`；自动化另有 smoke 12 项断言 |
 | A10 并发 | 两窗口同时操作 | 一个执行、一个报「另一技能操作正在进行中」 | 锁已实现；⏳ 运行时双窗口实测待补 |
 | A11 降级 | catalog 不可读 / 未完成 / 返回 0 条 | `list` 仍可用（catalog 仅作旁证），且**不再打出误导性的 `not-in-catalog` 标记**，只留一行原因；catalog 可选入参、scope 透传、四种不可信形态均有断言（v0.1.6，20 项） | 自动化已覆盖 |
-| A12 升级兼容 | dsh 0.1.5-rc.1 → 0.2.0-rc.2 升级后重启 | 插件随 profile 恢复，账本完好 | ✅ **已实测（2026-10-01，真实环境）**：宿主 API（commands / `skills.snapshot`+scope / `webServer.register` / app-boot patch 语义）、客户端槽位与基座模块全部形状不变；同时发现并修复 **dsh 0.2.0 新增的兼容性闸门**（peer 范围不满足即整包静默跳过，ADR-0008）、符号链接语义（提供方按 `stat` 跟随，旧文案说反了）、导航图标改名导致自愈补丁失效、三处 frontmatter 镜像偏差与 `~` 展开 |
+| A12 升级兼容 | dsh 0.1.5-rc.1 → 0.2.0-rc.2 升级后重启 | 插件随 profile 恢复，账本完好 | ✅ **已实测（2026-10-01，真实环境）**：宿主 API（commands / `skills.snapshot`+scope / `webServer.register` / app-boot patch 语义）、客户端槽位与基座模块全部形状不变；同时发现并修复 **dsh 0.2.0 新增的兼容性闸门**（peer 范围不满足即整包静默跳过，ADR-0008）、符号链接语义（提供方按 `stat` 跟随，旧文案说反了）、导航图标改名导致自愈补丁失效、三处 frontmatter 镜像偏差与 `~` 展开。**重启后复核（v0.1.7）**：用 dsh 自己的闸门函数复算，profile 9/9 bundle 全部挂载；插件两半区在线（`/dsh-skills/list|doctor` → HTTP 200，客户端 bundle 已进入浏览器启动载荷）；navicon 自愈在真实 0.2.0 bundle 上注入 `IconSkillOutlineMedium`；`settings.section id="skills"` 无一方竞争者 |
 | A13 同名冲突 | 已装后换源 `install` | 默认报错展示既有 source/ref；`--force` 换源 | 自动化已覆盖 |
 | A14 时序承诺 | 操作后立即 `list` | 文案承诺「下一轮对话起生效」，不做同步等待 | 已实现（文案固定）；⏳ 运行时留档 |
 
