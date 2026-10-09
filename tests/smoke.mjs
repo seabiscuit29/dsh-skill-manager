@@ -766,6 +766,45 @@ const symlinksSupported = (() => {
 	}
 }
 
+console.log("\nwrite guard: same-origin without breaking the desktop host");
+{
+	// Two real regressions live here, both reported from a running deployment:
+	//
+	//   * a byte-exact `Origin === Host` compare rejected `localhost:PORT` against
+	//     `127.0.0.1:PORT`, so every button failed with 403 while the page rendered fine;
+	//   * requiring an `Origin` header at all rejected the desktop host's own UI, which
+	//     sends none — "untrusted origin (origin (absent) vs host 127.0.0.1:19387)".
+	//
+	// `checkSameOrigin` is module-private, so it is evaluated from the shipped source: the
+	// behaviour under test belongs to that exact file, not to a copy of it.
+	const httpSource = readFileSync(new URL("../lib/http.js", import.meta.url), "utf8");
+	const helperSources = [
+		httpSource.match(/function splitAuthority[\s\S]*?\n}/)[0],
+		httpSource.match(/function isLoopback[\s\S]*?\n}/)[0],
+		httpSource.match(/function checkSameOrigin[\s\S]*?\n}/)[0],
+	].join("\n");
+	const checkOrigin = new Function(`${helperSources}\nreturn checkSameOrigin;`)();
+	const allows = (origin, host) => checkOrigin({ headers: { origin, host } }).ok === true;
+
+	// Must be accepted: the shapes a legitimate local client actually produces.
+	check("a loopback Host with NO Origin is accepted", allows(undefined, "127.0.0.1:19387"));
+	check("a localhost Host with no Origin is accepted", allows(undefined, "localhost:19387"));
+	check("an IPv6 loopback Host with no Origin is accepted", allows(undefined, "[::1]:19387"));
+	check("a loopback alias pair is accepted", allows("http://localhost:19387", "127.0.0.1:19387"));
+	check("the reverse alias pair is accepted", allows("http://127.0.0.1:19387", "localhost:19387"));
+	check("an IPv6 origin against an IPv4 host is accepted", allows("http://[::1]:19387", "127.0.0.1:19387"));
+	check("an exact match is accepted", allows("http://127.0.0.1:19387", "127.0.0.1:19387"));
+
+	// Must still be refused: this is the CSRF guard, and absent-Origin acceptance is scoped
+	// to loopback precisely so these keep failing.
+	check("an absent Origin is refused for a NON-loopback Host", !allows(undefined, "evil.example:80"));
+	check("an absent Origin is refused for a LAN address", !allows(undefined, "192.168.1.5:19387"));
+	check("a genuinely cross-origin request is refused", !allows("https://evil.example", "127.0.0.1:19387"));
+	check("a different port is refused", !allows("http://127.0.0.1:9999", "127.0.0.1:19387"));
+	check("an opaque origin is refused", !allows("null", "127.0.0.1:19387"));
+	check("a malformed origin is refused", !allows("not a url", "127.0.0.1:19387"));
+}
+
 console.log("\nmacOS: symlinks are part of what verify checks");
 if (!symlinksSupported) {
 	console.log("  skip  this account cannot create symlinks");
