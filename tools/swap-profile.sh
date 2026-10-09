@@ -41,10 +41,31 @@ RETIRED=("@deepseek-ai/dsh-client-ui-settings-skills" "@deepseek-ai/dsh-skill-ma
 
 step() { printf '\n[%s] %s\n' "$1" "$2"; }
 
+# The launcher, in order of preference.
+#
+# `dsh` is NOT on PATH when the desktop application is the installation: the packaged
+# launcher lives inside the .app and is the only executable permitted to manage the
+# reserved `desktop` profile — an npm copy refuses with "profile desktop is managed
+# exclusively by the Electron application". So look for the packaged launcher FIRST,
+# then PATH, and only then fall back to npx for an ordinary web/tui profile.
+DSH_LAUNCHER="${DSH_LAUNCHER:-}"
+if [ -z "$DSH_LAUNCHER" ]; then
+	for candidate in \
+		"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+		"$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"; do
+		if [ -x "$candidate" ]; then DSH_LAUNCHER="$candidate"; break; fi
+	done
+fi
+[ -n "$DSH_LAUNCHER" ] || DSH_LAUNCHER="$(command -v dsh 2>/dev/null || true)"
+
 # The official channel: `dsh plugin` forwards to pnpm inside the profile directory.
 dsh_plugin() {
-	if command -v dsh >/dev/null 2>&1; then
-		dsh plugin --profile "$PROFILE" "$@"
+	if [ -n "$DSH_LAUNCHER" ]; then
+		"$DSH_LAUNCHER" plugin --profile "$PROFILE" "$@"
+	elif [ "$PROFILE" = "desktop" ]; then
+		echo "  the desktop profile can only be managed by the packaged dsh launcher;" >&2
+		echo "  pass it with DSH_LAUNCHER=<path to .../runtime/cli/bin/dsh>" >&2
+		return 1
 	else
 		npx -y @deepseek-ai/dsh plugin --profile "$PROFILE" "$@"
 	fi

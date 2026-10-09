@@ -103,10 +103,13 @@ dsh plugin --profile web add git+https://github.com/<owner>/dsh-skill-manager.gi
 其他根 `~/.agents/skills`（可用 `/skill migrate` 迁入）；staging 走 `os.tmpdir()`（macOS 上即 `$TMPDIR`）。
 前置条件：Node ≥ 20、`git`（安装/迁移用）；`pnpm` 由 `dsh plugin` 转发调用。
 
-**macOS 上的一条特有注意**：**符号链接的技能不会被收录**——提供方按 lstat 语义读取条目
-（`dsh-fs-local` 把链接报告为 `symlink`），只接受真实目录或 `.md` 文件，因此
-「把开发仓库 symlink 进 `~/.dsh/skills`」不会生效。管理器不会假装它可用：列表里标为**符号链接**、
-`doctor` 也会单列出来，想启用请改成真实拷贝（或从其他根 `/skill migrate` 迁入）。
+**macOS / Linux 上的符号链接**：提供方**跟随**符号链接——它按 `stat` 语义给孩子分类
+（`dsh-skill-filesystem` 的 `nodeEntryKind` 对链接取 `stat`），所以
+「把开发仓库 symlink 进 `~/.dsh/skills`」是**有效**的，链接会被正常发布。
+唯一不会被发布的是**断链**（目标不存在，或目标不是技能）：列表里标为**符号链接（断链）**、
+`doctor` 单列出来，因为那时提供方看到的是 `other` 类型。
+链接本身也计入账本（记为 `symlink:<target>`），所以删掉或改指一个链接，`verify` 会报告出来；
+禁用/卸载移动的是链接，不是它的目标。
 
 ## 禁用是怎么实现的 / How disabling works
 
@@ -221,6 +224,15 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager   # 版本号变更�
   整个 bundle 被静默跳过——插件不挂载，且它自己的 `doctor` 永远不会运行到。范围写窄
   （例如钉死某个 rc）就会触发。`tools/preflight.mjs` 现在会调用 dsh 自己的实现复算
   这条闸门，重启前就能拦下。
+- **闸门必须对着「正在运行的那个 dsh」复算**（0.1.9 修）：`~/.dsh/profiles/node_modules`
+  是 0.2 之前的共享安装，里面每个包都是指向某个旧 npx 缓存的**符号链接**，因此它会一直
+  解析成功，把真正的运行时挡住——在 macOS 桌面包上，preflight 曾拿缓存的 `0.1.0-rc.7`
+  去算闸门，于是对健康的 0.2.0-rc.2 部署报 `SKIPS this bundle`。现在候选会全部收集后
+  取**最好**的一个（真实安装优先于共享安装，再看版本高低、是否带 `dsh-app-boot`），并且
+  能读**打进 `app.asar` 的**运行时；`--dsh-root` / `$DSH_INSTALL_ROOT` 仍可强制指定。
+- **运行时自报同理**：`/skill doctor` 之前会报缓存里的 `0.1.0-rc.7`，而进程实际跑的是
+  `0.2.0-rc.2`。现在会读 `app.asar` 里的真身，也支持 pnpm 的嵌套 store 布局
+  （`node_modules/<版本>/node_modules/…`）；`DSH_RUNTIME_VERSION` 可整体覆盖。
 - 客户端半区只 require 基座模块（`react`、`react/jsx-runtime`，可选
   `@deepseek-ai/dsh-client-ui-primitives`），不依赖任何业务命名空间——把
   dsh 升级导致的客户端契约漂移风险压到最低（0.1.5 升级曾使旧页面的
@@ -237,3 +249,26 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager   # 版本号变更�
   管理范围（后者计划迁移，见 `docs/M2-PLAN.md`）。
 - 更新（`/skill update`）与 `verify --remote` 属远期；账本已记录 source/ref 以便将来生长。
 - 跨卷移动被拒绝（隐藏区与技能根必须同卷），以免留下半成品。
+- **跨卷安装（staging → 技能根）**：staging 在 `os.tmpdir()`，macOS 上可能位于与 `$HOME`
+  不同的卷。那里不能用「拒绝」了事，所以退化为 copy：先复制到目标**同级**的隐藏名
+  （`.incoming-<pid>-<时间戳>`，提供方看不见），再同卷 rename 就位，失败则清掉副本。
+  这样不会把半个技能留在受管根里，也不会覆盖掉活着的旧版本。
+
+## macOS 兼容性修正 / macOS fixes
+
+本插件的核心是平台无关的纯 Node ESM，但下面这些点是**在 macOS 上真会出错**的，已修并加了回归测试
+（`tests/smoke.mjs` 的 "macOS:" 分组）：
+
+| 症状 | 原因 | 修法 |
+|---|---|---|
+| 安装后技能里的**相对符号链接变成指向 `/var/folders/...` 的绝对链接**，随即全部断链 | `cpSync` 默认会重写相对链接为绝对路径，而 staging 目录马上被删 | `copyTree` 传 `verbatimSymlinks: true`（并保留时间戳） |
+| 删掉技能里的符号链接，`verify` 仍报 clean | 符号链接既非 file 也非 directory，哈希时被**静默丢弃** | 记为 `symlink:<target>`；目录链接不再跟随（也顺带免了走出技能树的遍历） |
+| Finder 锁定的文件 / `chmod 500` 目录让删除和清理抛 `ENOTEMPTY`，且 `force: true` 压不住 | 瞬时错误集只有 Windows 的 `EACCES`/`EBUSY`/`EPERM` | 加入 `ENOTEMPTY`/`ENOTSUP`，`removePath` 用 `maxRetries`/`retryDelay` |
+| `.MD` 文件被记录成 `.md`，禁用时移动的文件名与账本对不上 | APFS 大小写不敏感但不保留大小写，代码却把小写名**重新拼**出来 | 名字一律取自磁盘上的真实条目（`basename` + 大小写不敏感匹配） |
+| 账本里 `Alpha`，查 `alpha` 说「未入账」 | JSON 对象键是精确匹配，文件系统不是 | 账本查找大小写不敏感 |
+| 崩过一次后所有操作报「another skill operation is in progress」 | macOS 快速复用 pid，`kill(pid, 0)` 分不清原主与接任者 | 锁记录进程**启动时间**并在不匹配时视为过期（`ps` 不可用时退化为只看存活） |
+| 同一秒内两次删除卸载，前一个备份消失 | 时间戳只有秒级精度，POSIX rename 能覆盖**空目录** | 备份名探测冲突并加后缀 |
+| 页面能打开但每个按钮都 403 `untrusted origin` | `Origin` 与 `Host` 逐字节比较，`localhost` / `127.0.0.1` / `[::1]` 混用即失配 | 归一化 loopback、IPv6 与大小写后再比较 |
+
+CI 在 `ubuntu-latest` / `macos-latest` / `windows-latest` 上跑同一批测试；上面这一组是**平台相关**的，
+在 Linux 上大部分会静默通过，所以它们单独成组、按症状命名，便于回看。

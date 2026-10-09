@@ -5,7 +5,18 @@
 //   DSH_SKILL_MANAGER_SKILLS_ROOT / DSH_SKILL_MANAGER_MANIFEST_FILE
 //
 // Usage: node tests/smoke.mjs
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readlinkSync,
+	readdirSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -27,6 +38,7 @@ const { parseSourceSpec } = await import("../lib/core/source.js");
 const { loadManifest } = await import("../lib/core/manifest.js");
 const { validateSkill } = await import("../lib/core/validate.js");
 const { hiddenZone, backupsDir } = await import("../lib/core/paths.js");
+const { lockHolder, processStart: processStartForTest } = await import("../lib/core/lock.js");
 const { migrateAll, migrateSkill, scanMigratable } = await import("../lib/core/migrate.js");
 const { observeCatalog, catalogUsable } = await import("../lib/core/catalog.js");
 const { formatRows } = await import("../lib/core/report.js");
@@ -660,6 +672,133 @@ console.log("\ndoctor");
 	check("doctor sees the root", report.rootExists === true);
 	check("doctor counts hidden skills", typeof report.hiddenCount === "number");
 	check("doctor surfaces untracked skills", Array.isArray(report.untracked));
+}
+
+// ---------------------------------------------------------------------------
+// macOS regressions. Each case below was a real defect on Darwin/APFS: the
+// platform recycles pids, is case-insensitive but case-preserving, and puts
+// `os.tmpdir()` on a different volume from `$HOME` often enough to matter.
+// ---------------------------------------------------------------------------
+console.log("\nmacOS: relative symlinks survive a staged install");
+{
+	// A link must still point at its sibling after the copy. Without
+	// `verbatimSymlinks`, `cpSync` rewrites it to an absolute path into the
+	// staging directory that install.js then deletes — the link dangles and the
+	// provider silently stops publishing it.
+	const source = join(scratch, "link-source");
+	mkdirSync(join(source, "shared"), { recursive: true });
+	writeFileSync(
+		join(source, "SKILL.md"),
+		"---\nname: linky\ndescription: bundle carrying a relative symlink\n---\n\nBody\n",
+		"utf8",
+	);
+	writeFileSync(join(source, "shared", "data.txt"), "payload\n", "utf8");
+	symlinkSync(join("shared", "data.txt"), join(source, "alias.txt"));
+
+	const installed = await installSkill(source);
+	check("a bundle carrying a relative symlink installs", installed.ok === true, installed.message);
+
+	const staged = join(root, "linky", "alias.txt");
+	check("the copied link exists", existsSync(staged));
+	const linkTarget = readlinkSync(staged);
+	check("the copied link stays relative", linkTarget === join("shared", "data.txt"), linkTarget);
+	check(
+		"the link does not point into the staging area",
+		!linkTarget.includes("staging") && !linkTarget.includes(tmpdir()),
+		linkTarget,
+	);
+}
+
+console.log("\nmacOS: symlinks are part of what verify checks");
+{
+	// A symlink is neither `isFile()` nor `isDirectory()`, so hashing used to drop
+	// it silently: deleting one left `verify` reporting a clean skill.
+	const before = verifySkill("linky");
+	check(
+		"a link is recorded in the ledger",
+		before.ok === true && Object.keys(loadManifest().skills.linky.files).includes("alias.txt"),
+	);
+
+	rmSync(join(root, "linky", "alias.txt"));
+	const after = verifySkill("linky");
+	check("deleting a link is reported", after.ok === true && after.clean === false);
+	check("the deleted link is listed as missing", after.missing.includes("alias.txt"), JSON.stringify(after.missing));
+
+	// Put it back so the later backup test removes a complete bundle.
+	writeFileSync(join(root, "linky", "shared", "data.txt"), "payload\n", "utf8");
+	symlinkSync(join("shared", "data.txt"), join(root, "linky", "alias.txt"));
+}
+
+console.log("\nmacOS: a case-variant flat skill round-trips");
+{
+	// APFS answers `exists("upper.md")` for an on-disk `upper.MD`. Rebuilding the
+	// name lowercase made the manager rename the real file while recording a
+	// spelling the disk never used.
+	const source = join(scratch, "upper-src");
+	mkdirSync(source, { recursive: true });
+	writeFileSync(
+		join(source, "upper.MD"),
+		"---\nname: upper\ndescription: flat skill with a shouting extension\n---\n\nBody\n",
+		"utf8",
+	);
+	copyFileSync(join(source, "upper.MD"), join(root, "upper.MD"));
+
+	const disabled = await setSkillEnabled("upper", false);
+	check("a .MD skill can be disabled", disabled.ok === true, disabled.message);
+	check(
+		"it lands in the hidden zone under its real name",
+		existsSync(join(hiddenZone(), "upper.MD")),
+		readdirSync(hiddenZone()).join(", "),
+	);
+
+	const enabled = await setSkillEnabled("upper", true);
+	check("it can be enabled again", enabled.ok === true, enabled.message);
+	check("the file keeps its original spelling", existsSync(join(root, "upper.MD")));
+}
+
+console.log("\nmacOS: a lock is not held by a recycled pid");
+{
+	// macOS hands out pids again quickly, and a bare `kill(pid, 0)` cannot tell the
+	// original holder from a stranger that inherited the number: every mutation
+	// then fails for the whole staleness window. Distinguishing them needs a process
+	// start time, which comes from `ps` — unavailable in some sandboxes, where the
+	// lock falls back to liveness alone. Assert the mechanism when it is available
+	// and the fallback when it is not, so the case is covered on either machine.
+	const file = join(root, ".skill-manager.lock");
+	const stamp = processStartForTest(process.pid);
+	writeFileSync(
+		file,
+		JSON.stringify({ pid: process.pid, at: Date.now(), label: "impersonator", started: "Thu Jan  1 00:00:00 1970" }),
+		"utf8",
+	);
+	if (stamp === undefined) {
+		// The probe is unavailable: the lock is held by a live pid, which is the safe answer.
+		check("without a start-time probe the live pid holds the lock", lockHolder() !== undefined);
+		rmSync(file, { force: true });
+	} else {
+		check("a mismatched process start time frees the lock", lockHolder() === undefined, stamp);
+	}
+	check("an operation proceeds instead of failing", (await adoptSkill("beta"))?.ok === true);
+	check("the lock is released afterwards", !existsSync(file));
+}
+
+console.log("\nmacOS: a same-second backup does not overwrite an earlier one");
+{
+	// `stamp()` has one-second resolution. POSIX rename over an existing EMPTY
+	// directory succeeds, so a second remove in the same second silently ate the
+	// first backup.
+	const source = join(scratch, "twin-source");
+	mkdirSync(source, { recursive: true });
+	writeFileSync(
+		join(source, "SKILL.md"),
+		"---\nname: twin\ndescription: installed twice to make two backups\n---\n\nBody\n",
+		"utf8",
+	);
+	const first = await removeSkill((await installSkill(source)).name);
+	const second = await removeSkill((await installSkill(source)).name);
+	check("the first backup exists", existsSync(first.backupPath), first.backupPath);
+	check("the second backup exists", existsSync(second.backupPath), second.backupPath);
+	check("they are different paths", first.backupPath !== second.backupPath, `${first.backupPath} vs ${second.backupPath}`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

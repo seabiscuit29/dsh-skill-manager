@@ -1,6 +1,43 @@
 # 安装与迁移：从两个旧插件切换到新插件
 
-本文是**移交清单**：由你执行换插件，顺序不能颠倒。
+## macOS / Linux 快速开始（先看这里）
+
+下面的「换装」流程是 Windows 那次迁移的历史记录；在 macOS / Linux 上装这个插件**不需要**它。
+插件自带 `dsh.bundle.patch`，走官方通道即可：
+
+```bash
+# 1) 把仓库放在一个不会随手删掉的位置（file: 依赖指向它本身）
+git clone https://github.com/seabiscuit29/dsh-skill-manager.git ~/DSH/dsh-skill-manager
+
+# 2) 装进正在使用的 profile（桌面应用通常是 desktop，浏览器版是 web）
+dsh plugin --profile desktop add file:$HOME/DSH/dsh-skill-manager
+
+# 3) 重启前预检（只读；闸门/入口/客户端契约/快照新鲜度一起算）
+node ~/DSH/dsh-skill-manager/tools/preflight.mjs --profile desktop --package ~/DSH/dsh-skill-manager
+
+# 4) 重启 dsh 生效
+```
+
+改了代码之后要**重新快照**：pnpm 对 `file:` 依赖只看路径，`add --force` 不会刷新内容，
+必须 remove 再 add：
+
+```bash
+bash ~/DSH/dsh-skill-manager/tools/resync-profile.sh          # 加 --dry-run 先看它要做什么
+bash ~/DSH/dsh-skill-manager/tools/resync-profile.sh --profile desktop
+```
+
+> 桌面应用里的 `dsh` 不在 `PATH` 上，它随应用分发；用
+> `/Applications/DeepSeek\ Harness.app/Contents/Resources/runtime/cli/bin/dsh` 即可。
+> 预检找不到运行时时会提示你传 `--dsh-root <安装目录>`，或直接给
+> `DSH_RUNTIME_VERSION=<版本>` 明确当前运行时。
+
+**已知无害的告警**：`legacy shared install still present: ~/.dsh/profiles/node_modules/@deepseek-ai/dsh`
+——那是 0.2 之前的共享安装（每个包都是指向旧 npx 缓存的符号链接）。它不会再抢到运行时判定，
+删不删都不影响；确认没有 profile 依赖它之后可以整个删掉。
+
+---
+
+下面的「换装」清单是 Windows 上的历史迁移记录。
 
 ## 前提状态
 

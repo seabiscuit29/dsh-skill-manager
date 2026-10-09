@@ -19,7 +19,7 @@
 // Usage:
 //   node tools/preflight.mjs
 //   node tools/preflight.mjs --profile web --package D:/DSH/dsh-skill-manager
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -36,6 +36,108 @@ const PROFILE = arg("profile", "web");
 const PACKAGE_DIR = resolve(arg("package", "."));
 const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), ".dsh");
 const PROFILE_DIR = join(DSH_HOME, "profiles", PROFILE);
+/** The re-snapshot command for THIS platform; telling a macOS user to run PowerShell is a dead end. */
+const RESYNC_COMMAND = process.platform === "win32" ? "tools\\resync-profile.ps1" : "bash tools/resync-profile.sh";
+
+/**
+ * The packaged desktop build ships dsh INSIDE an asar archive. Plain Node cannot see
+ * through one, so `existsSync(<app>.asar/dsh/node_modules/...)` is false even though the
+ * running runtime lives exactly there — which is how the gate came to be evaluated against
+ * a stale npx cache. These helpers read an asar directly; Electron's own `fs` already does,
+ * and returns a hit first, so this only fills the plain-Node gap.
+ *
+ * Layout: a Chromium pickle — `u32` total size at 4, `u32` header size at 12, the JSON index
+ * from offset 16 — with file payloads addressed by `offset` from the end of the index.
+ * Payloads in the shipped build carry a small non-JSON prefix, so the reader skips to the
+ * first value rather than assuming the payload starts exactly at `offset`.
+ */
+/** Open archives, keyed by file, each with its parsed header and data offset. */
+const asarIndexes = new Map();
+/** Cache failures, so a path that is not an archive is not re-probed on every call. */
+const asarMisses = new Set();
+
+/** The `…app.asar/…` part of a path, and the archive-relative path inside it. */
+function splitAsarPath(path) {
+	const markerIndex = path.indexOf("app.asar");
+	if (markerIndex === -1) return undefined;
+	return {
+		archive: path.slice(0, markerIndex + "app.asar".length),
+		inner: path.slice(markerIndex + "app.asar".length).replace(/^[\\/]+/, ""),
+	};
+}
+
+/** Parse (once) the asar header of a given archive file. */
+function asarIndexOf(archive) {
+	if (asarIndexes.has(archive)) return asarIndexes.get(archive);
+	if (asarMisses.has(archive)) return undefined;
+	let fd;
+	try {
+		fd = openSync(archive, "r");
+		const head = Buffer.alloc(16);
+		if (readSync(fd, head, 0, 16, 0) !== 16) throw new Error("truncated asar preamble");
+		const headerSize = head.readUInt32LE(12);
+		if (headerSize <= 0 || headerSize > 512 * 1024 * 1024) throw new Error("implausible asar header size");
+		const raw = Buffer.alloc(headerSize);
+		if (readSync(fd, raw, 0, headerSize, 16) !== headerSize) throw new Error("truncated asar header");
+		const index = { fd, base: 16 + headerSize, header: JSON.parse(raw.toString("utf8")) };
+		if (index.header === null || typeof index.header !== "object") throw new Error("asar header is not an object");
+		asarIndexes.set(archive, index);
+		return index;
+	} catch {
+		if (fd !== undefined) closeSync(fd);
+		asarMisses.add(archive);
+		return undefined;
+	}
+}
+
+/** Walk one asar header entry down a slash-separated path. */
+function asarEntry(index, inner) {
+	let current = index.header.files;
+	let entry;
+	for (const segment of inner.split("/").filter(Boolean)) {
+		entry = current?.[segment];
+		if (entry === undefined) return undefined;
+		current = entry.files;
+	}
+	return entry;
+}
+
+/** Whether a path exists on disk or inside an asar archive. */
+function pathExists(path) {
+	if (existsSync(path)) return true;
+	const split = splitAsarPath(path);
+	if (split === undefined) return false;
+	const index = asarIndexOf(split.archive);
+	if (index === undefined) return false;
+	if (split.inner === "") return true;
+	return asarEntry(index, split.inner) !== undefined;
+}
+
+/** Read a file from inside an asar archive, trimming the payload's non-JSON prefix. */
+function readAsarText(split) {
+	const index = asarIndexOf(split.archive);
+	if (index === undefined) return undefined;
+	const entry = asarEntry(index, split.inner);
+	if (entry === undefined) return undefined;
+	if (entry.unpacked === true) {
+		try {
+			return readFileSync(`${split.archive}.unpacked/${split.inner}`, "utf8");
+		} catch {
+			return undefined;
+		}
+	}
+	const size = Number(entry.size ?? 0);
+	if (!Number.isFinite(size) || size <= 0) return undefined;
+	// One probe read locates where the value really starts; the entry is then read exactly,
+	// so trailing bytes of the next member can never leak into the parse.
+	const probe = Buffer.alloc(16);
+	const probeLength = readSync(index.fd, probe, 0, probe.length, index.base + Number(entry.offset));
+	const start = probe.subarray(0, probeLength).toString("utf8").search(/[[{"]/);
+	const skip = start <= 0 ? 0 : start;
+	const buffer = Buffer.alloc(size);
+	const read = readSync(index.fd, buffer, 0, size, index.base + Number(entry.offset) + skip);
+	return buffer.subarray(0, read).toString("utf8");
+}
 
 /** Base modules a client bundle may require without declaring them external. */
 const BASE_SEED = new Set([
@@ -65,8 +167,19 @@ const note = (message) => notes.push(message);
 
 /** Parse JSON, reporting rather than throwing. Tolerates a UTF-8 BOM. */
 function readJson(file) {
+	let text;
 	try {
-		return JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+		// Prefer the asar-aware path: the running runtime lives inside the packaged desktop
+		// build's archive, where a plain `readFileSync` reports the file as missing.
+		const split = splitAsarPath(file);
+		const fromArchive = split === undefined ? undefined : readAsarText(split);
+		text = fromArchive ?? readFileSync(file, "utf8");
+	} catch (error) {
+		fail(`cannot parse ${file}: ${error.message}`);
+		return undefined;
+	}
+	try {
+		return JSON.parse(text.replace(/^\uFEFF/, ""));
 	} catch (error) {
 		fail(`cannot parse ${file}: ${error.message}`);
 		return undefined;
@@ -153,14 +266,18 @@ function splitSpecifier(specifier) {
 	return { packageName: packageSegments.join("/"), subpath: segments.slice(packageSegments.length).join("/") };
 }
 
-/** Resolve a package directory the way the loader does: install copy, then profile. */
+/**
+ * Resolve a package directory the way the loader does: install copy, then profile.
+ * Uses the asar-aware probe, because the install anchor of a packaged desktop build is
+ * inside `app.asar` and a plain `existsSync` reports every one of its packages as missing.
+ */
 function resolvePackageDir(packageName, { installAnchor, profileDir }) {
 	const candidates = [];
 	if (installAnchor !== null) candidates.push(join(installAnchor, "node_modules", ...packageName.split("/")));
 	candidates.push(join(profileDir, "node_modules", ...packageName.split("/")));
 	candidates.push(join(dirname(profileDir), "node_modules", ...packageName.split("/")));
 	for (const dir of candidates) {
-		if (existsSync(join(dir, "package.json"))) return dir;
+		if (pathExists(join(dir, "package.json"))) return dir;
 	}
 	return undefined;
 }
@@ -193,11 +310,11 @@ function checkEntrySpecifier(label, specifier, context) {
 			warn(`${label}: "${specifier}" has no "./${subpath}" export (the loader may still resolve it by path)`);
 			return;
 		}
-		if (!existsSync(join(dir, target))) fail(`${label}: "${specifier}" points at a missing file: ${target}`);
+		if (!pathExists(join(dir, target))) fail(`${label}: "${specifier}" points at a missing file: ${target}`);
 		return;
 	}
 	const target = exportTarget(pkg, ".");
-	if (target === undefined || !existsSync(join(dir, target))) {
+	if (target === undefined || !pathExists(join(dir, target))) {
 		fail(`${label}: entry "${specifier}" resolves to ${dir} but its entry file is missing — this bricks the boot`);
 	}
 }
@@ -206,36 +323,165 @@ console.log(`preflight: package=${PACKAGE_DIR}`);
 console.log(`preflight: profile=${PROFILE_DIR}\n`);
 
 // ------------------------------------------------ dsh 0.2+ compatibility gate
+/** Manifest of a dsh copy; reads through an asar archive when the runtime is bundled. */
+function runtimeManifestOf(dir) {
+	return readJson(join(dir, "package.json"));
+}
+
+/** Numeric-aware comparison of two dsh versions, so `0.2.0-rc.2` outranks `0.1.0-rc.7`. */
+function compareVersions(left, right) {
+	const parse = (version) => {
+		const [core, ...rest] = String(version).split("-");
+		return { core: core.split(".").map((part) => Number.parseInt(part, 10) || 0), pre: rest.join("-") };
+	};
+	const a = parse(left);
+	const b = parse(right);
+	for (let index = 0; index < Math.max(a.core.length, b.core.length); index++) {
+		const difference = (a.core[index] ?? 0) - (b.core[index] ?? 0);
+		if (difference !== 0) return difference;
+	}
+	if (a.pre === "" && b.pre !== "") return 1;
+	if (a.pre !== "" && b.pre === "") return -1;
+	return a.pre.localeCompare(b.pre);
+}
+
 /**
- * Locate an installed dsh, so the compatibility gate can be evaluated for real.
- * Order: `--dsh-root` / `$DSH_INSTALL_ROOT`, the profile, then the npx cache
- * directories an `npx -y @deepseek-ai/dsh` install lands in (newest first).
+ * Whether a dsh copy is the LEGACY profile-shared install
+ * (`~/.dsh/profiles/node_modules/@deepseek-ai/dsh`).
+ *
+ * Pre-0.2 layouts put one shared install there, and on macOS/Linux every package in it is a
+ * symlink into whichever npx cache created it. Such a copy keeps resolving forever, so the
+ * naive "first candidate that has a package.json" rule picked IT and evaluated the gate
+ * against a runtime the process is not running — reporting `dsh 0.1.0-rc.7 SKIPS this bundle`
+ * on a healthy macOS deployment whose runtime is 0.2.0-rc.2.
+ */
+function isLegacySharedInstall(dir) {
+	try {
+		const scope = join(dirname(dirname(dir)));
+		const entries = readdirSync(scope, { withFileTypes: true });
+		return entries.length > 0 && entries.every((entry) => entry.isSymbolicLink());
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Every dsh a PACKAGED build might be running, derived from standard install locations.
+ *
+ * A packaged app keeps its dsh inside an asar archive under its own resources directory,
+ * which no walk up from the project can reach — on macOS the app lives in `/Applications`
+ * while the plugin is checked out in the home directory. These are the locations the
+ * platform installers use, searched in the order a user is most likely to have used.
+ * @returns candidate `…/@deepseek-ai/dsh` directories, existing ones only.
+ */
+function packagedRuntimeCandidates() {
+	const roots = [];
+	const home = homedir();
+	if (process.platform === "darwin") {
+		for (const applications of [join(home, "Applications"), "/Applications", "/Applications/Utilities"]) {
+			let bundles = [];
+			try {
+				bundles = readdirSync(applications).filter((entry) => entry.endsWith(".app"));
+			} catch {
+				continue;
+			}
+			for (const bundle of bundles) roots.push(join(applications, bundle, "Contents", "Resources"));
+		}
+	} else if (process.platform === "win32") {
+		const local = process.env.LOCALAPPDATA;
+		if (typeof local === "string" && local !== "") {
+			for (const base of [join(local, "Programs"), local]) {
+				let dirs = [];
+				try {
+					dirs = readdirSync(base);
+				} catch {
+					continue;
+				}
+				for (const dir of dirs) roots.push(join(base, dir, "resources"));
+			}
+		}
+	} else {
+		let opt = [];
+		try {
+			opt = readdirSync("/opt");
+		} catch {
+			opt = [];
+		}
+		for (const dir of opt) roots.push(join("/opt", dir, "resources"));
+		roots.push("/usr/lib/resources", "/usr/share/resources");
+	}
+	const found = [];
+	for (const root of roots) {
+		for (const archive of ["app.asar", "app"]) {
+			const dir = join(root, archive, "dsh", "node_modules", "@deepseek-ai", "dsh");
+			if (pathExists(join(dir, "package.json"))) found.push(dir);
+		}
+	}
+	return found;
+}
+
+/**
+ * Locate the dsh installation whose version the gate must be evaluated against.
+ *
+ * Every candidate is collected and the BEST one wins, rather than the first that exists:
+ * the runtime the process actually runs, not merely a dsh package that happens to resolve.
+ * Preference order: an explicit `--dsh-root` / `$DSH_INSTALL_ROOT` (a deliberate override),
+ * then a real installation over a legacy shared one, then the highest version.
+ *
+ * `DSH_RUNTIME_VERSION` pins the version outright, for a runtime this walk cannot see.
  * @returns the `@deepseek-ai/dsh` package directory, or undefined.
  */
 function locateDshRoot() {
 	const explicit = arg("dsh-root", process.env.DSH_INSTALL_ROOT);
+	if (typeof explicit === "string" && explicit.trim() !== "") {
+		const dir = resolve(explicit.trim());
+		return pathExists(join(dir, "package.json")) ? dir : undefined;
+	}
+
 	const candidates = [];
-	if (typeof explicit === "string" && explicit.trim() !== "") candidates.push(resolve(explicit.trim()));
-	candidates.push(join(PROFILE_DIR, "node_modules", "@deepseek-ai", "dsh"));
+	const add = (dir) => {
+		if (!pathExists(join(dir, "package.json"))) return;
+		const manifest = runtimeManifestOf(dir);
+		const version = typeof manifest?.version === "string" ? manifest.version : undefined;
+		if (version === undefined) return;
+		if (candidates.some((candidate) => candidate.dir === dir)) return;
+		// `dsh-app-boot` is the runtime's own version oracle, so its presence marks a real
+		// installation rather than a dependency copy that merely happens to resolve.
+		candidates.push({ dir, version, legacy: isLegacySharedInstall(dir), oracle: pathExists(join(dirname(dir), "dsh-app-boot", "lib", "index.js")) });
+	};
+
+	// 1. the installation the process itself runs from.
+	for (const start of [process.argv?.[1], process.execPath]) {
+		if (typeof start !== "string" || start.trim() === "") continue;
+		let current = resolve(start);
+		for (let depth = 0; depth < 8; depth++) {
+			add(join(current, "node_modules", "@deepseek-ai", "dsh"));
+			add(join(current, "@deepseek-ai", "dsh"));
+			const parent = dirname(current);
+			if (parent === current) break;
+			current = parent;
+		}
+	}
+	// 2. a packaged build installed in the platform's usual place.
+	for (const dir of packagedRuntimeCandidates()) add(dir);
+	// 3. the legacy shared profile install, and the npx caches a `npx @deepseek-ai/dsh` run leaves.
+	add(join(PROFILE_DIR, "node_modules", "@deepseek-ai", "dsh"));
 	const caches = [
 		process.env.npm_config_cache,
 		process.env.LOCALAPPDATA === undefined ? undefined : join(process.env.LOCALAPPDATA, "npm-cache"),
 		join(homedir(), ".npm"),
 		join(homedir(), "AppData", "Local", "npm-cache"),
-		"D:\\npm-cache",
 	].filter((entry) => typeof entry === "string" && entry !== "" && existsSync(entry));
-	const found = [];
 	for (const cache of caches) {
 		const npx = join(cache, "_npx");
 		if (!existsSync(npx)) continue;
-		for (const entry of readdirSync(npx)) {
-			const dir = join(npx, entry, "node_modules", "@deepseek-ai", "dsh");
-			if (existsSync(join(dir, "package.json"))) found.push(dir);
-		}
+		for (const entry of readdirSync(npx)) add(join(npx, entry, "node_modules", "@deepseek-ai", "dsh"));
 	}
-	// Newest install wins: a machine can keep several npx checkouts around.
-	found.sort((left, right) => statSync(join(right, "package.json")).mtimeMs - statSync(join(left, "package.json")).mtimeMs);
-	return [...candidates, ...found].find((dir) => existsSync(join(dir, "package.json")));
+
+	const modern = candidates.filter((candidate) => !candidate.legacy);
+	const pool = modern.length > 0 ? modern : candidates;
+	pool.sort((left, right) => Number(right.oracle) - Number(left.oracle) || compareVersions(right.version, left.version));
+	return pool[0]?.dir;
 }
 
 /**
@@ -250,17 +496,20 @@ function locateDshRoot() {
  */
 async function checkCompatibilityGate(pkg) {
 	const root = locateDshRoot();
-	if (root === undefined) {
+	const pinned = process.env.DSH_RUNTIME_VERSION;
+	if (root === undefined && !(typeof pinned === "string" && pinned.trim() !== "")) {
 		note("compatibility gate: not evaluated (no dsh install located; pass --dsh-root <dir>)");
 		return;
 	}
-	const runtime = readJson(join(root, "package.json"))?.version;
+	const runtime =
+		typeof pinned === "string" && pinned.trim() !== ""
+			? pinned.trim()
+			: runtimeManifestOf(root)?.version;
 	if (typeof runtime !== "string") {
 		note("compatibility gate: not evaluated (the located dsh package has no version)");
 		return;
 	}
 	const manifest = { name: pkg.name, version: pkg.version, peerDependencies: pkg.peerDependencies ?? {} };
-	const scopeDir = dirname(root);
 	const peers = Object.entries(manifest.peerDependencies).filter(
 		([peer]) => peer === "@deepseek-ai/dsh" || peer.startsWith("@deepseek-ai/dsh-"),
 	);
@@ -268,20 +517,58 @@ async function checkCompatibilityGate(pkg) {
 		note(`compatibility gate: PASS (dsh ${runtime}; no @deepseek-ai/dsh* peers declared, so the bundle always loads)`);
 		return;
 	}
+	if (root !== undefined) note(`compatibility gate: runtime source ${root} (dsh ${runtime})`);
 
 	let issue;
 	let mechanism = "the real dsh implementation";
-	const bootEntry = join(scopeDir, "dsh-app-boot", "lib", "index.js");
+	// Prefer the `dsh-app-boot` that this very process already loaded: when preflight is run
+	// from inside the harness it is in the module cache, and importing it by its own URL works
+	// even when the installation is packed in an asar archive that `existsSync` — but not the
+	// loader — cannot see.
+	const loaded = Object.keys(createRequire(import.meta.url).cache ?? {}).find((key) =>
+		key.replaceAll("\\", "/").includes("@deepseek-ai/dsh-app-boot/lib/index."),
+	);
+	const bootEntries = [
+		loaded,
+		root === undefined ? undefined : join(dirname(root), "dsh-app-boot", "lib", "index.js"),
+	].filter((entry) => typeof entry === "string");
 	try {
-		if (!existsSync(bootEntry)) throw new Error("dsh-app-boot is not installed next to dsh");
-		const boot = await import(pathToFileURL(bootEntry).href);
-		if (typeof boot.evaluatePluginCompatibility !== "function") throw new Error("evaluatePluginCompatibility is not exported");
+		let boot;
+		for (const entry of bootEntries) {
+			try {
+				boot = await import(pathToFileURL(entry).href);
+			} catch {
+				continue;
+			}
+			if (typeof boot?.evaluatePluginCompatibility === "function") break;
+			boot = undefined;
+		}
+		if (typeof boot?.evaluatePluginCompatibility !== "function") {
+			throw new Error("dsh-app-boot is not installed next to dsh, and none is loaded in this process");
+		}
 		issue = boot.evaluatePluginCompatibility(manifest, {}, runtime);
 	} catch (error) {
 		// Same rule, evaluated locally: this is the shape the gate implements.
 		mechanism = `a local re-implementation (${error.message})`;
+		// `semver` is loaded from whichever anchor has it: the located installation keeps it
+		// next to the runtime, while a packaged build keeps it inside the archive, where only
+		// the profile's own resolution can find it.
+		const anchors = [root, PROFILE_DIR, PACKAGE_DIR].filter((entry) => typeof entry === "string");
+		let semver;
+		let semverError;
+		for (const anchor of anchors) {
+			try {
+				semver = createRequire(join(anchor, "package.json"))("semver");
+				break;
+			} catch (failure) {
+				semverError = failure;
+			}
+		}
+		if (semver === undefined) {
+			note(`compatibility gate: not evaluated (${semverError?.message ?? "semver is not resolvable"})`);
+			return;
+		}
 		try {
-			const semver = createRequire(join(root, "package.json"))("semver");
 			const unsatisfied = peers.filter(([, range]) => !semver.satisfies(runtime, range, { includePrerelease: true }));
 			issue = unsatisfied.length === 0 ? undefined : { peers: Object.fromEntries(unsatisfied) };
 		} catch (semverError) {
@@ -379,7 +666,15 @@ if (!existsSync(pkgFile)) {
 				fail('dsh.client is declared but exports["./client"] is missing');
 			} else {
 				const clientFile = join(PACKAGE_DIR, clientRel);
-				const text = existsSync(clientFile) ? readFileSync(clientFile, "utf8") : "";
+				// The package under test is the checkout, but read through the same helper so a
+				// package inside an asar archive is still inspectable.
+				const split = splitAsarPath(clientFile);
+				let text = "";
+				try {
+					text = split === undefined ? readFileSync(clientFile, "utf8") : (readAsarText(split) ?? "");
+				} catch {
+					text = "";
+				}
 				if (text === "") {
 					fail(`client bundle is missing or empty: ${clientRel}`);
 				} else {
@@ -552,7 +847,7 @@ if (!existsSync(profilePkgFile)) {
 		});
 		if (stale.length > 0) {
 			fail(
-				`the installed snapshot is stale (${stale.length} file(s) differ, e.g. ${stale.slice(0, 3).join(", ")}); run tools/resync-profile.ps1 so the profile serves the current code`,
+				`the installed snapshot is stale (${stale.length} file(s) differ, e.g. ${stale.slice(0, 3).join(", ")}); run ${RESYNC_COMMAND} so the profile serves the current code`,
 			);
 		} else {
 			note(`installed snapshot matches the source (${relativeFiles.length} files)`);
