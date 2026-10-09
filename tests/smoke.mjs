@@ -729,11 +729,16 @@ console.log("\nmacOS: symlinks are part of what verify checks");
 	symlinkSync(join("shared", "data.txt"), join(root, "linky", "alias.txt"));
 }
 
-console.log("\nmacOS: a case-variant flat skill round-trips");
+console.log("\nany filesystem: a case-variant flat skill round-trips");
 {
-	// APFS answers `exists("upper.md")` for an on-disk `upper.MD`. Rebuilding the
-	// name lowercase made the manager rename the real file while recording a
-	// spelling the disk never used.
+	// The two filesystem families disagree here, and both answers are correct:
+	//
+	//   APFS / NTFS — case-insensitive: `upper.md` and `upper.MD` are ONE file, so the
+	//   manager must move the really-existing `<name>.MD` while the ledger records the
+	//   spelling that is on disk. Joining a lowercase name used to move the wrong path.
+	//
+	//   ext4 — case-sensitive: they are TWO files, so a name-joined probe simply misses the
+	//   real one. Only a directory listing can find it. This is what CI caught on Linux.
 	const source = join(scratch, "upper-src");
 	mkdirSync(source, { recursive: true });
 	writeFileSync(
@@ -742,18 +747,30 @@ console.log("\nmacOS: a case-variant flat skill round-trips");
 		"utf8",
 	);
 	copyFileSync(join(source, "upper.MD"), join(root, "upper.MD"));
+	const caseInsensitive = existsSync(join(root, "upper.md"));
+	console.log(`  ..   this filesystem is ${caseInsensitive ? "case-insensitive (APFS/NTFS)" : "case-sensitive (ext4)"}`);
 
 	const disabled = await setSkillEnabled("upper", false);
 	check("a .MD skill can be disabled", disabled.ok === true, disabled.message);
 	check(
-		"it lands in the hidden zone under its real name",
+		"it lands in the hidden zone under the disk's own name",
 		existsSync(join(hiddenZone(), "upper.MD")),
 		readdirSync(hiddenZone()).join(", "),
+	);
+	check(
+		"the ledger records the spelling the disk uses",
+		loadManifest().skills.upper?.diskName === "upper",
+		JSON.stringify(loadManifest().skills.upper?.diskName),
 	);
 
 	const enabled = await setSkillEnabled("upper", true);
 	check("it can be enabled again", enabled.ok === true, enabled.message);
 	check("the file keeps its original spelling", existsSync(join(root, "upper.MD")));
+	// The row view must find it by its real name, whichever family this is.
+	check(
+		"list sees the skill",
+		buildRows().rows.some((row) => row.name === "upper"),
+	);
 }
 
 console.log("\nmacOS: a lock is not held by a recycled pid");
