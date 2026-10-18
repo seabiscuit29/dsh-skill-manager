@@ -246,6 +246,7 @@ if (section !== undefined) {
 					managed: false,
 					tracked: false,
 					providerSource: "user-agents",
+					migratable: true,
 				},
 			],
 		},
@@ -259,6 +260,35 @@ if (section !== undefined) {
 	check("an other-root card offers the migrate ACTION", outsideLabels.includes("migrate"));
 	check("an other-root card offers no remove action", !outsideLabels.includes("remove"));
 	check("an other-root card offers no enable/disable action", !outsideLabels.includes("enable") && !outsideLabels.includes("disable"));
+
+	// The server decides migratability. A bundled row (dsh ships its own skills from a
+	// temp dir) must NOT offer the action: clicking it could only ever produce an error.
+	const bundledTree = (() => {
+		stateSeeds = [
+			{
+				status: "ready",
+				rows: [
+					{
+						...row("delta-bundled", "enabled"),
+						managed: false,
+						tracked: false,
+						providerSource: "bundled",
+						migratable: false,
+						migrateReason: "provided by bundled, not a movable local skill root",
+					},
+				],
+			},
+		];
+		const tree = section.component({ t: (key) => key });
+		stateSeeds = null;
+		return tree;
+	})();
+	const bundledCard = collect(bundledTree, (node) => node.props?.["data-skill"] !== undefined)[0];
+	const bundledTexts = textsOf(bundledCard);
+	const bundledLabels = labelsOf(bundledCard);
+	check("a non-migratable row offers no migrate action", !bundledLabels.includes("migrate"));
+	check("a non-migratable row says so", bundledTexts.includes("notMigratable"));
+	check("a non-migratable row still states it is read-only", bundledTexts.includes("notManaged"));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

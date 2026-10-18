@@ -209,6 +209,17 @@ stateDiagram-v2
 入口：`/skill migrate [<name>] [--dry-run]`（无名字＝批量）、`POST /dsh-skills/migrate`、
 页面「其他根」卡片上的「**迁移**」按钮（卡片内联二次确认，与「删除」同款范式）。
 
+> **v0.1.9 修正（动作可用性由服务端判定）**：可迁移性不再由前端凭 `managed === false` 猜。
+> `/dsh-skills/list` 为每个只读行附带 `migratable` 与 `migrateReason`（来自
+> `migrationVerdicts()`，即同一套 `scanMigratable` 扫描）；页面只在 `migratable === true`
+> 时渲染「迁移」，否则显示「不可迁移」并把原因放在 tooltip。`/migrate` 与 `/skill migrate <name>`
+> 也会**先判定再动手**：内置（bundled）或其他非本地根提供的行，返回
+> `"<name>" 不可迁移 not migratable: 由 <source> 提供，不是可迁移的本地技能根（…）`，
+> 而不是此前那句容易误读的 `no migratable skill named "…" was found in ~/.agents/skills`。
+> 起因：dsh 0.2.x 自带 `diagnose-windows-sandbox-acl`（由 `dsh-sandbox-windows-acl` 把技能物化到
+> 临时目录），页面照样给它渲染「迁移」，点击必错。
+
+
 1. **扫描**（`scanMigratable`）：遍历外来根——默认 `$DSH_AGENTS_HOME/skills`，否则 `~/.agents/skills`
    （测试缝 `DSH_SKILL_MANAGER_FOREIGN_ROOTS`，Windows 以 `;` 分隔多根）——按 frontmatter 名归并，
    产出「可迁移」与「被拒（含原因）」两组；
@@ -325,7 +336,7 @@ github:<owner>/<repo>#<ref>[/<path>]
 | **FR-08** | `verify` 本地完整性 | sha256 比对输出 `clean/modified/missing/extra` 四类结果 | ✅ 已实现（v0.1.4） |
 | **FR-09** | `doctor` 诊断 | **六项本地检查**（技能根 / 隐藏区 / 清单 / 未入账 / 文件缺失 / 其他根，其他根附可迁移与受阻计数）**+ `wiring:`**（`commands`/`routes`/`webServer`/`navIcon` 接线状态）**+ `client half:`**（客户端契约自检结论与 `✗` 明细，见 §8.9） | ✅ 已实现（v0.1.4） |
 | **FR-10** | `adopt` 收编 | 未入账技能登记入账，`--source` 可显式指定来源 | ✅ 已实现（v0.1.4） |
-| **FR-11** | 存量迁移 | 命令 `/skill migrate [<name>] [--dry-run]`（无名＝批量）、HTTP `POST /dsh-skills/migrate`、页面「其他根」卡片的「迁移」按钮（内联确认）；**同卷 rename**、内容不重写、写清单附 `migratedFrom`；拒绝：frontmatter 非法 / 受管根或隐藏区已有同名（按 frontmatter 名比对，任何形态）/ 另一外来根同名；迁移后即可禁用与卸载 | ✅ 已实现（v0.1.4） |
+| **FR-11** | 存量迁移 | 命令 `/skill migrate [<name>] [--dry-run]`（无名＝批量）、HTTP `POST /dsh-skills/migrate`、页面「其他根」卡片的「迁移」按钮（内联确认）；**同卷 rename**、内容不重写、写清单附 `migratedFrom`；拒绝：frontmatter 非法 / 受管根或隐藏区已有同名（按 frontmatter 名比对，任何形态）/ 另一外来根同名；迁移后即可禁用与卸载。**可迁移性由服务端判定**（`migrationVerdicts()`）：页面只给 `migratable === true` 的行渲染按钮，bundled/非本地根的行显示「不可迁移」+ 原因，两个入口都先判定再动手（v0.1.9） | ✅ 已实现（v0.1.4；v0.1.9 修正动作可用性） |
 | **FR-12** | 幂等与并发 | 同 source+ref 重装跳过；并发操作由锁文件串行化，后到者报「另一技能操作正在进行中」 | ✅ 已实现（v0.1.4） |
 | **FR-13** | 页面清单视图（沿用现有页面设计） | 标题 + 说明 + 卡片列表 + 徽标 + 展开详情；**顶部本地搜索框**（按名称/描述过滤，显示 `筛选/总数`）；卡片展示名称/描述/形态/来源/状态；含未入账/已禁用/**其他根只读**行 | ✅ 已实现（v0.1.4） |
 | **FR-14** | 页面启用/禁用控件 | 每卡显示**当前状态文字 + 动作按钮**（见 NFR-13）；禁用＝移入同级隐藏区（可逆），启用＝移回；**下一轮对话起生效**；经锁串行化 | ✅ 已实现（v0.1.4） |
@@ -361,7 +372,7 @@ github:<owner>/<repo>#<ref>[/<path>]
 | **NFR-10 i18n** | 命令描述与输出、页面文案中英双语（页面字典 zh/en 键集一致，已由测试断言） | ✅ |
 | **NFR-11 页面安全面**（v2 新增） | 全部写操作经 `sameOrigin()` 同源校验 + 请求体 ≤4 KiB + 变更锁；路由统一前缀 `/dsh-skills`（重复 `(kind,path)` 注册会抛错，前缀即命名空间） | ✅ |
 | **NFR-12 双入口单一实现**（v2 新增） | 页面与命令不得各自实现业务规则；两条入口调用同一 `lib/core/*` 函数并共用同一把锁（评审检查项） | ✅ |
-| **NFR-13 页面可用性**（v2 新增） | 中英双语、键盘可达（`aria-expanded`/`aria-controls`/`aria-busy`/`label` 关联）、深浅色令牌自适应、加载/空/错误三态齐全；**控件语义规则：状态用文字描述、动作由按钮描述——禁止「勾选框 + 动作文案」这类读起来相反的写法**（由真实缺陷沉淀，已纳入客户端回归断言） | ✅ |
+| **NFR-13 页面可用性**（v2 新增） | 中英双语、键盘可达（`aria-expanded`/`aria-controls`/`aria-busy`/`label` 关联）、深浅色令牌自适应、加载/空/错误三态齐全；**控件语义规则：状态用文字描述、动作由按钮描述——禁止「勾选框 + 动作文案」这类读起来相反的写法**（由真实缺陷沉淀，已纳入客户端回归断言）；**动作可用性规则（v0.1.9）：按钮只在服务端判定该动作确实可执行时渲染，禁止"对所有同类行一律显示按钮"**（同样由真实缺陷沉淀：内置技能被渲染「迁移」→ 点击必错） | ✅ |
 
 ---
 
@@ -439,7 +450,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | GET | `/dsh-skills/list` | — | `{ ok, root, zone, manifestFile, manifestLoaded, rows[] }`（rows 含受管行与其他根只读行） |
 | POST | `/dsh-skills/set-enabled` | `{ name, enabled: boolean }` | `{ ok, changed, name, state, from?, to?, message }` |
 | POST | `/dsh-skills/remove` | `{ name, purge?, force? }` | `{ ok, name, state, backupPath, purged, message }` |
-| POST | `/dsh-skills/migrate` | `{ name }` | `{ ok, name, from, to, message }`（同卷 rename + 记账；失败返回 400 + 原因） |
+| POST | `/dsh-skills/migrate` | `{ name }` | `{ ok, name, from, to, message }`（同卷 rename + 记账；失败返回 400 + 原因——不可迁移的行给出「由 `<source>` 提供，不是可迁移的本地技能根」而不是"在 <root> 里找不到"） |
 | POST | `/dsh-skills/adopt` | `{ name, source? }` | `{ ok, name, source, state, message }` |
 | GET | `/dsh-skills/verify?name=` | — | `verifySkill()` 结果 |
 | GET | `/dsh-skills/doctor` | — | `{ ok, …buildDoctor() }` |
@@ -543,8 +554,8 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 
 | 测试 | 覆盖 | 结果 |
 |---|---|---|
-| `tests/smoke.mjs` | 来源解析（6 类）、校验镜像（4 类拒绝）、清单视图、**跨根 catalog 只读行**、**外来根自枚举（无需 catalog 也能列出其他根技能，5 项断言）**、adopt+verify（含篡改检测）、禁用/启用（含幂等与隐藏区落位）、install（本地源/幂等/同名拒绝/`--force` 换源备份）、remove（备份路径/条目删除/未入账守卫）、**存量迁移（12 项：扫描/被拒原因/`--dry-run` 不移动/同卷移动两端/源副本消失/`migratedFrom`/迁移后受管且可禁用/非法拒绝）**、**客户端契约自检（2 项）**、**目录可见性可信性（20 项：scope/cwd 透传、不完整发现、查询失败、空集、`list()`-only、abort 继续抛出、标记与说明行）**、**符号链接语义（活链按真实形态收录 / 断链才标注未收录）**、**frontmatter 镜像（重复键、带引号留白、布尔留白、纯空白 description、嵌套键冒充顶层）**、**导航图标两代自愈（0.2 命中、0.1 兼容、幂等、未知形态降级）**、**`~` 展开**、**dsh 运行时自报（16 项：minor 线判定、三处锚点发现、verified/UNVERIFIED/unknown 三条文案、未发现时不告警）**、doctor | **135 passed, 0 failed** |
-| `tests/client-bundle.mjs` | bundle 注册格式与 `id`、工厂可执行（`module/exports` 前置声明）、exports 契约、只 require 基座模块、`apply()` 注册 `settings.section id=skills order=16`、双语字典键集一致、一次渲染、**控件语义回归**（无勾选框控件；状态文字与动作文案一致）、**其他根卡片动作**（只读提示 + 有「迁移」+ 无「删除」/无启用禁用） | **29 passed, 0 failed** |
+| `tests/smoke.mjs` | 来源解析（6 类）、校验镜像（4 类拒绝）、清单视图、**跨根 catalog 只读行**、**外来根自枚举（无需 catalog 也能列出其他根技能，5 项断言）**、adopt+verify（含篡改检测）、禁用/启用（含幂等与隐藏区落位）、install（本地源/幂等/同名拒绝/`--force` 换源备份）、remove（备份路径/条目删除/未入账守卫）、**存量迁移（12 项：扫描/被拒原因/`--dry-run` 不移动/同卷移动两端/源副本消失/`migratedFrom`/迁移后受管且可禁用/非法拒绝）**、**客户端契约自检（2 项）**、**目录可见性可信性（20 项：scope/cwd 透传、不完整发现、查询失败、空集、`list()`-only、abort 继续抛出、标记与说明行）**、**符号链接语义（活链按真实形态收录 / 断链才标注未收录）**、**frontmatter 镜像（重复键、带引号留白、布尔留白、纯空白 description、嵌套键冒充顶层）**、**导航图标两代自愈（0.2 命中、0.1 兼容、幂等、未知形态降级）**、**`~` 展开**、**dsh 运行时自报（16 项：minor 线判定、三处锚点发现、verified/UNVERIFIED/unknown 三条文案、未发现时不告警）**、**迁移动作可用性（7 项：外来根可迁移 / 非法行不可迁移且带原因 / bundled 行不在判定表内 / 运行时对 bundled 行给出"不可移动"而非"找不到"）**、doctor | **155 passed, 0 failed** |
+| `tests/client-bundle.mjs` | bundle 注册格式与 `id`、工厂可执行（`module/exports` 前置声明）、exports 契约、只 require 基座模块、`apply()` 注册 `settings.section id=skills order=16`、双语字典键集一致、一次渲染、**控件语义回归**（无勾选框控件；状态文字与动作文案一致）、**其他根卡片动作**（只读提示 + 可迁移行有「迁移」+ 不可迁移行无「迁移」且标注原因 + 两者都无「删除」/无启用禁用） | **32 passed, 0 failed** |
 | `tools/preflight.mjs` | 追加 entry id 全树唯一、entry specifier 解析（含子路径）、入口文件存在、包契约（bundle/client/exports/exports 前置声明/require 白名单）、宿主入口可 import、旧包退净、`settings.section` 单一所有者、**profile 快照与源码逐文件一致** | 实测：换装后 **PASS 0 error / 0 warning**；负向场景（重复 id、指向已卸载包、入口缺失）**3/3 被拦下** |
 
 ### 9.2 命令侧验收矩阵（A 系列）
@@ -575,7 +586,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | B4 删除 | 点「删除」→ 确认 | 备份区出现副本；清单条目删除；页面移除该项 | 控件已实现；⏳ 留档 |
 | B5 一致性 | 命令装 → 页面禁用 | 两入口状态一致；并发被锁串行化 | 同一 core + 同一锁（NFR-12）；⏳ 留档 |
 | B6 降级 | 无 webServer（headless） | 插件仍加载，`/skill` 正常，无报错 | 嵌套注入已实现；⏳ 留档 |
-| B7 迁移 | 其他根卡片点「迁移」→ 内联确认 | 技能移入受管根；卡片由「其他根只读」转为受管（可禁用/卸载） | ✅ **已实测（2026-09-12）**：页面迁移动作完成两个 coze 技能的迁入，卡片随后显示为受管行（可禁用/卸载）；控件与语义由 `tests/client-bundle.mjs` 断言（有 migrate、无 remove/enable/disable） |
+| B7 迁移 | 其他根卡片点「迁移」→ 内联确认 | 技能移入受管根；卡片由「其他根只读」转为受管（可禁用/卸载） | ✅ **已实测（2026-09-12）**：页面迁移动作完成两个 coze 技能的迁入，卡片随后显示为受管行（可禁用/卸载）；控件与语义由 `tests/client-bundle.mjs` 断言（有 migrate、无 remove/enable/disable）。**v0.1.9 补正**：只有服务端判定 `migratable === true` 的行才出现按钮；bundled/非本地根的行显示「不可迁移」+ 原因（客户端 3 项、冒烟 7 项断言） |
 
 ### 9.4 交付验收（M5）
 
@@ -689,6 +700,6 @@ v2 追加裁决：**D1 页面传输 = 自注册 HTTP 路由**（[ADR-0006](adr/0
 | [INSTALL-MIGRATION.md](INSTALL-MIGRATION.md) | 换装步骤（脚本版/手工版）、预检能力说明、验收清单、回滚命令 |
 | [M2-PLAN.md](M2-PLAN.md) | 核心链路实施计划（模块设计、测试缝、子里程碑） |
 | `D:\DSH\PLUGIN-DEV-CHECKLIST.md` | 插件交付前检测总流程（七阶段 + 症状对照表 + 铁律） |
-| `tests/smoke.mjs` · `tests/client-bundle.mjs` | 离线冒烟（135）+ 客户端 bundle 执行测试（29） |
+| `tests/smoke.mjs` · `tests/client-bundle.mjs` | 离线冒烟（155）+ 客户端 bundle 执行测试（32） |
 | `tools/preflight.mjs` | 重启前预检（可指向任意插件：`--package <dir> --profile web`） |
 | `tools/resync-profile.ps1` · `tools/swap-profile.ps1` | 重快照 / 一键换装 |

@@ -39,7 +39,9 @@ const { loadManifest } = await import("../lib/core/manifest.js");
 const { validateSkill } = await import("../lib/core/validate.js");
 const { hiddenZone, backupsDir } = await import("../lib/core/paths.js");
 const { lockHolder, processStart: processStartForTest } = await import("../lib/core/lock.js");
-const { migrateAll, migrateSkill, scanMigratable } = await import("../lib/core/migrate.js");
+const { migrateAll, migrateSkill, migrationVerdicts, scanMigratable, unmigratableReason } = await import(
+	"../lib/core/migrate.js"
+);
 const { observeCatalog, catalogUsable } = await import("../lib/core/catalog.js");
 const { formatRows } = await import("../lib/core/report.js");
 
@@ -294,6 +296,43 @@ console.log("\nmigration from another root");
 		blocked = error.message;
 	}
 	check("migrating an invalid skill is refused", /cannot be migrated/.test(blocked), blocked);
+}
+
+console.log("\nmigration verdicts (what the page may offer)");
+{
+	// A read-only row can be read-only for two very different reasons: it lives in a
+	// filesystem root a rename can move, or a provider publishes it from somewhere this
+	// manager cannot touch. Offering "migrate" for the second kind promises an action that
+	// can only fail — which is exactly what a bundled skill produced.
+	const foreign = join(scratch, "agents-skills");
+	mkdirSync(join(foreign, "movable"), { recursive: true });
+	writeFileSync(join(foreign, "movable", "SKILL.md"), "---\nname: movable\ndescription: Move me\n---\n\nBody\n", "utf8");
+
+	const verdicts = migrationVerdicts();
+	check("a foreign-root skill is migratable", verdicts.get("movable")?.migratable === true);
+	check(
+		"its verdict names both ends",
+		verdicts.get("movable")?.from?.includes("agents-skills") && verdicts.get("movable")?.to?.startsWith(root),
+	);
+	check("an invalid foreign skill is not migratable", verdicts.get("BrokenOutsider")?.migratable === false);
+	check("and its verdict carries the reason", /invalid frontmatter/.test(verdicts.get("BrokenOutsider")?.reason ?? ""));
+	check("a bundled row is absent from the verdict map", verdicts.get("diagnose-windows-sandbox-acl") === undefined);
+
+	const bundledReason = unmigratableReason({ providerSource: "bundled" });
+	check(
+		"a bundled row explains itself",
+		/bundled/.test(bundledReason) && /not a movable local skill root/.test(bundledReason),
+		bundledReason,
+	);
+
+	// The rename path itself must explain why, not report "not found under <root>".
+	let refused = "";
+	try {
+		await migrateSkill("diagnose-windows-sandbox-acl");
+	} catch (error) {
+		refused = error.message;
+	}
+	check("migrating a bundled row explains that it cannot move", /cannot be moved by this manager/.test(refused), refused);
 }
 
 console.log("\nself checks");
@@ -680,6 +719,21 @@ console.log("\ndoctor");
 // `os.tmpdir()` on a different volume from `$HOME` often enough to matter.
 // ---------------------------------------------------------------------------
 console.log("\nmacOS: relative symlinks survive a staged install");
+// Windows only allows symlink creation with developer mode or elevation, so probe the
+// capability once instead of crashing the whole suite on a machine that legitimately
+// cannot create links (the upstream test assumed the privilege).
+const symlinksSupported = (() => {
+	const probe = join(scratch, "symlink-probe");
+	try {
+		mkdirSync(probe, { recursive: true });
+		writeFileSync(join(probe, "t.txt"), "x", "utf8");
+		symlinkSync(join("t.txt"), join(probe, "l.txt"));
+		rmSync(probe, { recursive: true, force: true });
+		return true;
+	} catch {
+		return false;
+	}
+})();
 {
 	// A link must still point at its sibling after the copy. Without
 	// `verbatimSymlinks`, `cpSync` rewrites it to an absolute path into the
@@ -693,24 +747,29 @@ console.log("\nmacOS: relative symlinks survive a staged install");
 		"utf8",
 	);
 	writeFileSync(join(source, "shared", "data.txt"), "payload\n", "utf8");
-	symlinkSync(join("shared", "data.txt"), join(source, "alias.txt"));
+	if (symlinksSupported) symlinkSync(join("shared", "data.txt"), join(source, "alias.txt"));
+	else console.log("  skip  this account cannot create symlinks (Windows needs developer mode or elevation)");
 
 	const installed = await installSkill(source);
 	check("a bundle carrying a relative symlink installs", installed.ok === true, installed.message);
 
-	const staged = join(root, "linky", "alias.txt");
-	check("the copied link exists", existsSync(staged));
-	const linkTarget = readlinkSync(staged);
-	check("the copied link stays relative", linkTarget === join("shared", "data.txt"), linkTarget);
-	check(
-		"the link does not point into the staging area",
-		!linkTarget.includes("staging") && !linkTarget.includes(tmpdir()),
-		linkTarget,
-	);
+	if (symlinksSupported) {
+		const staged = join(root, "linky", "alias.txt");
+		check("the copied link exists", existsSync(staged));
+		const linkTarget = readlinkSync(staged);
+		check("the copied link stays relative", linkTarget === join("shared", "data.txt"), linkTarget);
+		check(
+			"the link does not point into the staging area",
+			!linkTarget.includes("staging") && !linkTarget.includes(tmpdir()),
+			linkTarget,
+		);
+	}
 }
 
 console.log("\nmacOS: symlinks are part of what verify checks");
-{
+if (!symlinksSupported) {
+	console.log("  skip  this account cannot create symlinks");
+} else {
 	// A symlink is neither `isFile()` nor `isDirectory()`, so hashing used to drop
 	// it silently: deleting one left `verify` reporting a clean skill.
 	const before = verifySkill("linky");
