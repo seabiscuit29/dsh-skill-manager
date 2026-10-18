@@ -188,11 +188,11 @@ dsh-skill-manager/
 # 语法检查（macOS/Linux 与 Windows 通用，CI 亦如此）
 find lib tests tools -type f \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} \;
 
-# 五套离线测试；`npm test` 一次跑完（共 325 项断言，CI 在三个 OS × node 20/22 上跑）
+# 五套离线测试；`npm test` 一次跑完（共 327 项断言，CI 在三个 OS × node 20/22 上跑）
 npm test
 node tests/smoke.mjs               # 核心链路冒烟（155 项）
 node tests/client-bundle.mjs       # 客户端 bundle 真实执行（32 项，含控件语义与动作可用性）
-node tests/command-plane.mjs       # 命令面：真实 /skill handler 跑全部子命令与旗标（74 项）
+node tests/command-plane.mjs       # 命令面：真实 /skill handler 跑全部子命令与旗标（76 项）
 node tests/http-routes.mjs         # HTTP 面：7 条路由 + 同源/方法/4 KiB 上限/错误映射（50 项）
 node tests/concurrency.mjs         # 跨进程锁与陈旧锁恢复（14 项）
 
@@ -266,6 +266,10 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager   # 版本号变更�
   不同的卷。那里不能用「拒绝」了事，所以退化为 copy：先复制到目标**同级**的隐藏名
   （`.incoming-<pid>-<时间戳>`，提供方看不见），再同卷 rename 就位，失败则清掉副本。
   这样不会把半个技能留在受管根里，也不会覆盖掉活着的旧版本。
+- **Node 22 + Windows + 非 ASCII 路径**：上游 `fs.cpSync` 在该组合下**原生 abort 进程**
+  （`0xC0000005`，Node 20/24 正常）。安装/覆盖/迁移都要复制文件树，因此本插件会在复制前
+  **拒绝**这对路径并给出原因，而不是让 dsh 宿主任由它崩掉。用 Node 20/24，或让技能路径保持
+  ASCII。`tests/command-plane.mjs` 在两种运行时下分别断言「成功」与「拒绝且不写盘」。
 
 ## macOS 兼容性修正 / macOS fixes
 

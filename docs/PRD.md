@@ -620,6 +620,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | R10 | Windows rename 瞬时错误 / 跨卷非原子 | 中 | 20→200 ms×8 重试；禁用/启用遇 `EXDEV` 直接拒绝 | ✅ |
 | R11 | 多根同名导致「移走一个 ≠ 消失」 | 中 | 按「根 + diskName」记账；页面标注其他根来源 | 部分（复核逻辑已备；`catalogSource` 字段 ⏳） |
 | R12 | 客户端契约缺少运行期自检 | 中 | `doctor` 增 `wiring:`（commands / routes / webServer / navIcon 实际接线）与 `client half:`（`lib/selfcheck.js` 的 `checkClientContract()`：lazy-CJS 形态、`id`=包名、`module/exports` 前置声明、require 白名单、`platform`）；冒烟测试含 2 项自检断言 | ✅ 已实现（v0.1.4） |
+| R13 | **Node 22 + Windows + 非 ASCII 路径**：上游 `fs.cpSync` 原生 abort 进程（0xC0000005），会带走 dsh 宿主 | 中 | `lib/core/fsutil.js` 在复制前判定该组合并**拒绝**（清晰错误、不写盘）；Node 20/24 不受影响；`tests/command-plane.mjs` 在 22 上断言「拒绝且未落盘」、在 24 上断言「成功」 | ✅ 已实现（v0.1.12） |
 
 ### 10.2 已裁决决策（10 项，沿用评估报告 §7）
 
@@ -704,6 +705,6 @@ v2 追加裁决：**D1 页面传输 = 自注册 HTTP 路由**（[ADR-0006](adr/0
 | [INSTALL-MIGRATION.md](INSTALL-MIGRATION.md) | 换装步骤（脚本版/手工版）、预检能力说明、验收清单、回滚命令 |
 | [M2-PLAN.md](M2-PLAN.md) | 核心链路实施计划（模块设计、测试缝、子里程碑） |
 | `D:\DSH\PLUGIN-DEV-CHECKLIST.md` | 插件交付前检测总流程（七阶段 + 症状对照表 + 铁律） |
-| `tests/smoke.mjs` · `tests/client-bundle.mjs` · `tests/command-plane.mjs` · `tests/http-routes.mjs` · `tests/concurrency.mjs` | 离线冒烟（155）+ 客户端 bundle 执行（32）+ 命令面（74）+ HTTP 面（50）+ 跨进程锁（14）= **325 项**；`npm test` 一次跑完 |
+| `tests/smoke.mjs` · `tests/client-bundle.mjs` · `tests/command-plane.mjs` · `tests/http-routes.mjs` · `tests/concurrency.mjs` | 离线冒烟（155）+ 客户端 bundle 执行（32）+ 命令面（76）+ HTTP 面（50）+ 跨进程锁（14）= **327 项**；`npm test` 一次跑完 |
 | `tools/preflight.mjs` | 重启前预检（可指向任意插件：`--package <dir> --profile web`） |
 | `tools/resync-profile.ps1` · `tools/swap-profile.ps1` | 重快照 / 一键换装 |

@@ -197,33 +197,58 @@ console.log("\ninstall variants (spaces, unicode path, --force)");
 	//
 	// The `trace` markers below are synchronous writes to fd 1: this section once died on a
 	// Windows CI runner with exit 127 and NO error text, and buffered console output is lost
-	// when a process aborts. Each step announces itself before it can crash.
+	// when a process aborts.
 	trace(`env: node ${process.version} ${process.platform}/${process.arch} tmp=${tmpdir()}`);
-	trace("step: create fixture with a spaced + CJK parent path");
-	const weird = bundle(join(scratch, "incoming dir", "技能 包"), "weird-path", "Installed from a spaced unicode path");
-	trace(`step: fixture created, exists=${existsSync(weird)}, skillFile=${existsSync(join(weird, "SKILL.md"))}`);
-	trace("step: quoted install");
-	const quotedInstall = await run(`install "${weird}"`);
-	trace(`step: quoted install -> ${quotedInstall.kind}`);
-	check("install handles a QUOTED path with spaces and CJK characters", quotedInstall.kind === "success", quotedInstall.text);
-	check("the bundle landed", existsSync(join(root, "weird-path", "SKILL.md")));
 
+	// A source path containing a SPACE is the case quoting exists for, and it works
+	// everywhere. A path containing non-ASCII characters is additionally guarded: Node 22 on
+	// Windows aborts inside fs.cpSync for such paths (upstream bug), so the manager refuses
+	// that combination with a message instead of taking the host down with it.
+	const copySurvivesNonAscii = !(process.platform === "win32" && Number(process.versions.node.split(".")[0]) === 22);
+
+	trace("step: create fixture with a spaced parent path");
+	const spaced = bundle(join(scratch, "incoming dir", "plain package"), "spaced-path", "Installed from a spaced parent path");
+	trace(`step: fixture created, exists=${existsSync(spaced)}`);
+	trace("step: quoted install (space only)");
+	const quotedInstall = await run(`install "${spaced}"`);
+	trace(`step: quoted install -> ${quotedInstall.kind}`);
+	check("install handles a QUOTED path containing a space", quotedInstall.kind === "success", quotedInstall.text);
+	check("the bundle landed", existsSync(join(root, "spaced-path", "SKILL.md")));
 	// The same spec unquoted must not silently install something else: it splits, so the
 	// first positional is a truncated path and the failure names that path.
-	const unquoted = await run(`install ${weird}`);
+	const unquoted = await run(`install ${spaced}`);
 	check(
 		"an unquoted spaced path fails loudly instead of installing the wrong thing",
 		unquoted.kind === "error" && !existsSync(join(root, "incoming")),
 		unquoted.text,
 	);
 
-	const replacement = bundle(join(scratch, "incoming", "weird-path-v2"), "weird-path", "Replaced via --force");
+	trace("step: create fixture with a spaced + CJK parent path");
+	const cjk = bundle(join(scratch, "incoming dir", "技能 包"), "cjk-path", "Installed from a spaced unicode path");
+	trace(`step: fixture created, exists=${existsSync(cjk)}, skillFile=${existsSync(join(cjk, "SKILL.md"))}`);
+	trace("step: quoted install (space + CJK)");
+	const cjkInstall = await run(`install "${cjk}"`);
+	trace(`step: quoted install -> ${cjkInstall.kind}`);
+	if (copySurvivesNonAscii) {
+		check("install handles a QUOTED path with spaces and CJK characters", cjkInstall.kind === "success", cjkInstall.text);
+		check("the CJK-sourced bundle landed", existsSync(join(root, "cjk-path", "SKILL.md")));
+	} else {
+		// Refused, not crashed: the guard exists precisely so the host survives this.
+		check(
+			"Node 22 on Windows REFUSES a non-ASCII copy instead of crashing the process",
+			cjkInstall.kind === "error" && /non-ASCII|ASCII/.test(cjkInstall.text),
+			cjkInstall.text,
+		);
+		check("the refused CJK install wrote nothing", !existsSync(join(root, "cjk-path")));
+	}
+
+	const replacement = bundle(join(scratch, "incoming", "spaced-path-v2"), "spaced-path", "Replaced via --force");
 	const forced = await run(`install ${replacement} --force`);
 	check("install --force replaces an existing skill", forced.kind === "success", forced.text);
-	check("the new description is live", /Replaced via --force/.test(readFileSync(join(root, "weird-path", "SKILL.md"), "utf8")));
+	check("the new description is live", /Replaced via --force/.test(readFileSync(join(root, "spaced-path", "SKILL.md"), "utf8")));
 	check("the replaced version went to the backup area", readdirSync(backupsDir()).length > 0);
 
-	const conflict = bundle(join(scratch, "incoming", "weird-conflict"), "weird-path", "Should be refused");
+	const conflict = bundle(join(scratch, "incoming", "spaced-conflict"), "spaced-path", "Should be refused");
 	const refused = await run(`install ${conflict}`);
 	check("installing over an existing name without --force is refused", refused.kind === "error", refused.text);
 

@@ -43,6 +43,7 @@
 | 跨进程并发 | ✅ 第二个进程被 fail-fast 拒绝（`another skill operation is in progress`）且磁盘未变；陈旧锁（pid 已死）自动恢复 |
 | 4 KiB body 上限 / 同源 | ✅ 超限 400、外来 Origin 403（http-routes + 活体） |
 | 中文 JSON / 编码 | ✅ 页面载荷与命令输出中文正常；本轮曾用 PowerShell 写坏 `lib/http.js`（已从 git 恢复并复检，教训见 §六） |
+| **非 ASCII 路径（Node 22）** | ⚠️→✅ 上游缺陷：Node **22.23.3** 上 `fs.cpSync` 复制含非 ASCII 字符的路径会**原生 abort**（`0xC0000005`；Node 20/24 正常）。已在 `copyTree` 前置**拒绝**该组合（清晰错误、零写入），命令面测试按运行时分别断言「成功 / 拒绝」 |
 
 ## 四、本轮发现并修复的问题
 
@@ -57,6 +58,12 @@
 4. **上游 macOS 用例在 Windows 崩套件**：`macOS: relative symlinks survive a staged install` 无保护调用
    `symlinkSync` → EPERM 中断全部断言。→ 先探测能力，不支持则 `skip`（保留 macOS/Linux 覆盖）。
 5. **测试基础设施**：新增命令面/HTTP/并发三套测试 + CI 三步 + `npm test` 脚本 + `tools/live-check.mjs`。
+6. **CI 上 Windows/node22 的 `exit 127`**（查日志 → 本机用 Node 22 复现 → 二分定位）：
+   `install variants` 段用带中文的父目录做 fixture，而 Node **22.23.3** 在 Windows 上对含非 ASCII
+   字符的路径做**最普通的 `cpSync`** 就会原生 abort（`0xC0000005`；Node 20/24 均正常）。这不是本插件
+   的代码缺陷，但会把 dsh 宿主一起带走。→ `lib/core/fsutil.js` 的 `copyTree` 在复制前判定
+   「win32 + Node 22 + 任一路径含非 ASCII」并**拒绝**（给出原因、不写盘）；命令面测试在 Node 24 上
+   断言成功、在 Node 22 上断言「拒绝且未落盘」。README「已知限制」与 PRD R13 同步记录。
 
 ## 五、待办（需要重启）
 
