@@ -26,6 +26,10 @@
 | `tools/preflight.mjs` | — | 包契约 + 合成树 + 兼容性闸门复算 + 快照一致性 |
 | `tools/live-check.mjs`（新） | 22 | 对**运行中的部署**做可逆活体验收 |
 
+> 断言数随"能否创建符号链接"浮动 5 项：受限进程（本机默认）跑 **325**，能创建符号链接的
+> 令牌跑 **330**（`macOS: relative symlinks survive a staged install` 那一段会真正执行，且
+> 实测在 Windows 上也能通过——`cpSync` 的 `verbatimSymlinks` 行为是跨平台的）。
+
 ## 三、Windows 专项结果
 
 | 关注点 | 结果 |
