@@ -437,7 +437,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | migrate | `/skill migrate [<name>] [--dry-run]` | 单个：`migrated "<name>" into <root> and recorded it in the ledger — manageable from the next turn`；批量：`已迁移 migrated: n/m` + 逐条 ✓/✗；`--dry-run` 时输出 `可迁移 migratable: n` 与 `from → to` 预览 | 外来根无此技能；frontmatter 非法；同名已存在于受管根/隐藏区/另一外来根（逐条给出原因） |
 | verify | `/skill verify [<name>]` | `✓ <name> [state] clean` 或 `! … modified=n missing=n extra=n` | 未入账提示先 adopt |
 | doctor | `/skill doctor` | 本地检查 + `wiring:` 接线状态 + `client half:` 客户端契约自检（`✗` 明细）+ `catalog query:` 目录查询状态 + `dsh runtime:` 运行时版本与**已验证/未验证**判定（v0.1.8） | 清单不可读或目录查询失败时报告原因 |
-| install | `/skill install <spec> [--force]` | `installed "<name>" @ <sha12> — visible from the next turn` | 校验失败；同名冲突；git 凭证/超时/404 |
+| install | `/skill install <spec> [--force]` | `installed "<name>" @ <sha12> — visible from the next turn` | 校验失败；同名冲突；git 凭证/超时/404。**v0.1.11**：`<spec>` 支持引号——路径含空格（Windows 用户目录常见）必须写成 `/skill install "C:\my skills\x"`；不加引号会被拆成多个位置参数并明确报错，不会误装 |
 | update | `/skill update` | 占位提示「暂不支持更新（近期范围外）」 | — |
 
 （`--force`/`--purge`/`--source`/`--dry-run` 均被实际消费——`--dry-run` 由 `migrate` 消费（预览，不移动文件）；
@@ -556,7 +556,11 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 |---|---|---|
 | `tests/smoke.mjs` | 来源解析（6 类）、校验镜像（4 类拒绝）、清单视图、**跨根 catalog 只读行**、**外来根自枚举（无需 catalog 也能列出其他根技能，5 项断言）**、adopt+verify（含篡改检测）、禁用/启用（含幂等与隐藏区落位）、install（本地源/幂等/同名拒绝/`--force` 换源备份）、remove（备份路径/条目删除/未入账守卫）、**存量迁移（12 项：扫描/被拒原因/`--dry-run` 不移动/同卷移动两端/源副本消失/`migratedFrom`/迁移后受管且可禁用/非法拒绝）**、**客户端契约自检（2 项）**、**目录可见性可信性（20 项：scope/cwd 透传、不完整发现、查询失败、空集、`list()`-only、abort 继续抛出、标记与说明行）**、**符号链接语义（活链按真实形态收录 / 断链才标注未收录）**、**frontmatter 镜像（重复键、带引号留白、布尔留白、纯空白 description、嵌套键冒充顶层）**、**导航图标两代自愈（0.2 命中、0.1 兼容、幂等、未知形态降级）**、**`~` 展开**、**dsh 运行时自报（16 项：minor 线判定、三处锚点发现、verified/UNVERIFIED/unknown 三条文案、未发现时不告警）**、**迁移动作可用性（7 项：外来根可迁移 / 非法行不可迁移且带原因 / bundled 行不在判定表内 / 运行时对 bundled 行给出"不可移动"而非"找不到"）**、doctor | **155 passed, 0 failed** |
 | `tests/client-bundle.mjs` | bundle 注册格式与 `id`、工厂可执行（`module/exports` 前置声明）、exports 契约、只 require 基座模块、`apply()` 注册 `settings.section id=skills order=16`、双语字典键集一致、一次渲染、**控件语义回归**（无勾选框控件；状态文字与动作文案一致）、**其他根卡片动作**（只读提示 + 可迁移行有「迁移」+ 不可迁移行无「迁移」且标注原因 + 两者都无「删除」/无启用禁用） | **32 passed, 0 failed** |
-| `tools/preflight.mjs` | 追加 entry id 全树唯一、entry specifier 解析（含子路径）、入口文件存在、包契约（bundle/client/exports/exports 前置声明/require 白名单）、宿主入口可 import、旧包退净、`settings.section` 单一所有者、**profile 快照与源码逐文件一致** | 实测：换装后 **PASS 0 error / 0 warning**；负向场景（重复 id、指向已卸载包、入口缺失）**3/3 被拦下** |
+| `tests/command-plane.mjs`（v0.1.11） | **命令面端到端**：用真实 `apply()` 注册的 `/skill` handler 跑 list / search / disable / enable / remove / adopt / verify / doctor / install / migrate 全子命令与 `--force` / `--purge` / `--dry-run` / `--source`；含 CRLF frontmatter、含空格与中文的源路径、幂等禁用、未知子命令、缺参、坏路径 | **74 passed, 0 failed** |
+| `tests/http-routes.mjs`（v0.1.11） | **HTTP 面端到端**：7 条路由的 200/400/403/405、同源校验（外来 Origin 403）、4 KiB body 上限、坏 JSON、`/list` 的 `migratable`/`migrateReason`/`runtime` 契约、`/migrate` 对 bundled/已受管/未知三种拒绝的真实原因、disposer 全部注销 | **50 passed, 0 failed** |
+| `tests/concurrency.mjs`（v0.1.11） | **跨进程锁**：持有锁时第二个进程被 fail-fast 拒绝且不改动磁盘、陈旧锁（pid 已死）自愈、连续子进程与账本一致、env 接缝未泄漏 | **14 passed, 0 failed** |
+| `tools/live-check.mjs`（v0.1.11） | **部署后活体验收**（对运行中的实例，可逆）：路由在线、runtime 自报、只读行的迁移判定、bundled 行拒绝原因、探针技能 install→禁用→启用→verify→remove、外来 Origin 403 | 实测 **21/22**（唯一失败项是当时运行进程仍为修复前代码的文案；源码已修，重启后应 22/22） |
+| `tools/preflight.mjs` | 追加 entry id 全树唯一、entry specifier 解析（含子路径）、入口文件存在、包契约（bundle/client/exports/exports 前置声明/require 白名单）、宿主入口可 import、旧包退净、`settings.section` 单一所有者、**profile 快照与源码逐文件一致**、**dsh 兼容性闸门复算**（调用 dsh 自己的 `evaluatePluginCompatibility`） | 实测：换装后 **PASS 0 error / 0 warning**；负向场景（重复 id、指向已卸载包、入口缺失、peer 越界）**4/4 被拦下** |
 
 ### 9.2 命令侧验收矩阵（A 系列）
 
@@ -570,7 +574,7 @@ dsh plugin --profile web add file:D:/DSH/dsh-skill-manager
 | A7 卸载 | `remove` | 目录下架；备份区有副本 | 自动化已覆盖（页面待实测） |
 | A8 完整性 | 篡改后 `verify` | 报 `modified` 及文件 | 自动化已覆盖 |
 | A9 迁移 | `/skill migrate`（批量）或页面「迁移」按钮 | 统一根、全部入账、迁移后可禁用/卸载 | ✅ **已实测（2026-09-12，真实环境）**：`~/.agents/skills` 两技能迁入 `~/.dsh/skills`，来源根已空、受管根 7 个、清单 7 条且两者带 `migratedFrom`、管理视图 7 行全部 `managed/tracked/enabled`；自动化另有 smoke 12 项断言 |
-| A10 并发 | 两窗口同时操作 | 一个执行、一个报「另一技能操作正在进行中」 | 锁已实现；⏳ 运行时双窗口实测待补 |
+| A10 并发 | 两窗口同时操作 | 一个执行、一个报「另一技能操作正在进行中」 | ✅ **已实测（v0.1.11）**：`tests/concurrency.mjs` 用真实子进程验证——持锁时第二个进程被 fail-fast 拒绝（`another skill operation is in progress`）且磁盘未变；陈旧锁（pid 已死）自动恢复；连续子进程与账本一致 |
 | A11 降级 | catalog 不可读 / 未完成 / 返回 0 条 | `list` 仍可用（catalog 仅作旁证），且**不再打出误导性的 `not-in-catalog` 标记**，只留一行原因；catalog 可选入参、scope 透传、四种不可信形态均有断言（v0.1.6，20 项） | 自动化已覆盖 |
 | A12 升级兼容 | dsh 0.1.5-rc.1 → 0.2.0-rc.2 升级后重启 | 插件随 profile 恢复，账本完好 | ✅ **已实测（2026-10-01，真实环境）**：宿主 API（commands / `skills.snapshot`+scope / `webServer.register` / app-boot patch 语义）、客户端槽位与基座模块全部形状不变；同时发现并修复 **dsh 0.2.0 新增的兼容性闸门**（peer 范围不满足即整包静默跳过，ADR-0008）、符号链接语义（提供方按 `stat` 跟随，旧文案说反了）、导航图标改名导致自愈补丁失效、三处 frontmatter 镜像偏差与 `~` 展开。**重启后复核（v0.1.7）**：用 dsh 自己的闸门函数复算，profile 9/9 bundle 全部挂载；插件两半区在线（`/dsh-skills/list|doctor` → HTTP 200，客户端 bundle 已进入浏览器启动载荷）；navicon 自愈在真实 0.2.0 bundle 上注入 `IconSkillOutlineMedium`；`settings.section id="skills"` 无一方竞争者 |
 | A13 同名冲突 | 已装后换源 `install` | 默认报错展示既有 source/ref；`--force` 换源 | 自动化已覆盖 |
@@ -700,6 +704,6 @@ v2 追加裁决：**D1 页面传输 = 自注册 HTTP 路由**（[ADR-0006](adr/0
 | [INSTALL-MIGRATION.md](INSTALL-MIGRATION.md) | 换装步骤（脚本版/手工版）、预检能力说明、验收清单、回滚命令 |
 | [M2-PLAN.md](M2-PLAN.md) | 核心链路实施计划（模块设计、测试缝、子里程碑） |
 | `D:\DSH\PLUGIN-DEV-CHECKLIST.md` | 插件交付前检测总流程（七阶段 + 症状对照表 + 铁律） |
-| `tests/smoke.mjs` · `tests/client-bundle.mjs` | 离线冒烟（155）+ 客户端 bundle 执行测试（32） |
+| `tests/smoke.mjs` · `tests/client-bundle.mjs` · `tests/command-plane.mjs` · `tests/http-routes.mjs` · `tests/concurrency.mjs` | 离线冒烟（155）+ 客户端 bundle 执行（32）+ 命令面（74）+ HTTP 面（50）+ 跨进程锁（14）= **325 项**；`npm test` 一次跑完 |
 | `tools/preflight.mjs` | 重启前预检（可指向任意插件：`--package <dir> --profile web`） |
 | `tools/resync-profile.ps1` · `tools/swap-profile.ps1` | 重快照 / 一键换装 |

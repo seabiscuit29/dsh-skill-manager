@@ -1,6 +1,6 @@
 {
     "name":  "dsh-skill-manager",
-    "version":  "0.1.10",
+    "version":  "0.1.11",
     "description":  "Local skill manager for DeepSeek Harness: list \u0026 search, enable/disable and uninstall installed skills, from the /skill command and the Settings - Skills page.",
     "type":  "module",
     "main":  "lib/index.js",
@@ -50,5 +50,15 @@
                   "cordis.patch.yml",
                   "README.md"
               ],
+    "scripts":  {
+                    "test":  "node tests/smoke.mjs && node tests/client-bundle.mjs && node tests/command-plane.mjs && node tests/http-routes.mjs && node tests/concurrency.mjs",
+                    "test:core":  "node tests/smoke.mjs",
+                    "test:client":  "node tests/client-bundle.mjs",
+                    "test:command":  "node tests/command-plane.mjs",
+                    "test:http":  "node tests/http-routes.mjs",
+                    "test:lock":  "node tests/concurrency.mjs",
+                    "preflight":  "node tools/preflight.mjs",
+                    "live-check":  "node tools/live-check.mjs"
+                },
     "license":  "MIT"
 }

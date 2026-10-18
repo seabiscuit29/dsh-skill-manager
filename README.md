@@ -185,10 +185,20 @@ dsh-skill-manager/
 ## 开发 / Development
 
 ```bash
-# 语法与两套离线测试（macOS/Linux 与 Windows 通用，CI 亦如此）
+# 语法检查（macOS/Linux 与 Windows 通用，CI 亦如此）
 find lib tests tools -type f \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} \;
-node tests/smoke.mjs               # 宿主/核心全链路冒烟（155 项断言）
-node tests/client-bundle.mjs       # 客户端 bundle 真实执行（32 项断言，含控件语义与动作可用性回归）
+
+# 五套离线测试；`npm test` 一次跑完（共 325 项断言，CI 在三个 OS × node 20/22 上跑）
+npm test
+node tests/smoke.mjs               # 核心链路冒烟（155 项）
+node tests/client-bundle.mjs       # 客户端 bundle 真实执行（32 项，含控件语义与动作可用性）
+node tests/command-plane.mjs       # 命令面：真实 /skill handler 跑全部子命令与旗标（74 项）
+node tests/http-routes.mjs         # HTTP 面：7 条路由 + 同源/方法/4 KiB 上限/错误映射（50 项）
+node tests/concurrency.mjs         # 跨进程锁与陈旧锁恢复（14 项）
+
+# 部署后验收（重启 dsh web 之后）：对运行中的实例做一次可逆的活体检查
+node tools/live-check.mjs                              # 默认 http://127.0.0.1:3080
+node tools/live-check.mjs --url http://127.0.0.1:3099  # 指到别的实例
 
 # 改过代码 → 重快照进 profile（会自动跑预检）
 bash tools/resync-profile.sh                       # macOS / Linux
@@ -199,10 +209,13 @@ bash tools/render-ui-mock.sh                       # macOS / Linux
 powershell -File tools\render-ui-mock.ps1          # Windows
 ```
 
-测试通过环境变量把整套路径指向临时目录，因此**永远不会**动到真实技能根：
+离线测试通过环境变量把整套路径指向临时目录，因此**永远不会**动到真实技能根：
 `DSH_SKILL_MANAGER_SKILLS_ROOT`、`DSH_SKILL_MANAGER_MANIFEST_FILE`、
 `DSH_SKILL_MANAGER_HIDDEN_DIR`、`DSH_SKILL_MANAGER_BACKUPS_DIR`、
 `DSH_SKILL_MANAGER_STAGING_DIR`、`DSH_SKILL_MANAGER_FOREIGN_ROOTS`。
+
+`tools/live-check.mjs` 是个例外，它有意打真实部署：只创建一个 `zz-live-check-*` 探针技能
+（install → 禁用/启用 → verify → remove），其余行只读，`finally` 里兜底清理。
 
 改完代码后重新快照到 profile 再重启（`pnpm` 对 `file:` 依赖只看路径，必须重装）：
 

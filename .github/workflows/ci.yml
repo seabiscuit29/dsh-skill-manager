@@ -62,3 +62,18 @@ jobs:
       - name: Client bundle execution test
         shell: bash
         run: node tests/client-bundle.mjs
+
+      # The three suites below drive the SHIPPED entry points instead of the core:
+      # the real `/skill` handler, the real HTTP routes, and real child processes racing
+      # for the mutation lock. They are what makes "every function works" a claim.
+      - name: Command plane end-to-end
+        shell: bash
+        run: node tests/command-plane.mjs
+
+      - name: HTTP routes end-to-end
+        shell: bash
+        run: node tests/http-routes.mjs
+
+      - name: Cross-process lock
+        shell: bash
+        run: node tests/concurrency.mjs
