@@ -10,7 +10,7 @@
 // so the real deployment is never touched.
 //
 // Usage: node tests/command-plane.mjs
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,6 +32,17 @@ const { hiddenZone, backupsDir } = await import("../lib/core/paths.js");
 
 let passed = 0;
 let failed = 0;
+/**
+ * Synchronous diagnostic line: `console.log` buffers on a pipe, so a process that aborts
+ * loses everything it printed since the last flush. `fs.writeSync(1, …)` cannot be lost.
+ */
+function trace(message) {
+	try {
+		writeSync(1, `  ..   ${message}\n`);
+	} catch {
+		/* diagnostics must never break the run */
+	}
+}
 function check(label, condition, detail = "") {
 	if (condition) {
 		passed += 1;
@@ -183,8 +194,17 @@ console.log("\ninstall variants (spaces, unicode path, --force)");
 	// A source directory whose path contains a space and Chinese characters. The spec is
 	// quoted because that is the only way one token can carry a space; unquoted it splits
 	// into several positionals (Windows user directories look exactly like this).
+	//
+	// The `trace` markers below are synchronous writes to fd 1: this section once died on a
+	// Windows CI runner with exit 127 and NO error text, and buffered console output is lost
+	// when a process aborts. Each step announces itself before it can crash.
+	trace(`env: node ${process.version} ${process.platform}/${process.arch} tmp=${tmpdir()}`);
+	trace("step: create fixture with a spaced + CJK parent path");
 	const weird = bundle(join(scratch, "incoming dir", "技能 包"), "weird-path", "Installed from a spaced unicode path");
+	trace(`step: fixture created, exists=${existsSync(weird)}, skillFile=${existsSync(join(weird, "SKILL.md"))}`);
+	trace("step: quoted install");
 	const quotedInstall = await run(`install "${weird}"`);
+	trace(`step: quoted install -> ${quotedInstall.kind}`);
 	check("install handles a QUOTED path with spaces and CJK characters", quotedInstall.kind === "success", quotedInstall.text);
 	check("the bundle landed", existsSync(join(root, "weird-path", "SKILL.md")));
 
