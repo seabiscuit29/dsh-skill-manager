@@ -13,7 +13,7 @@
 //
 // Usage:
 //   node tools/live-check.mjs [--url http://127.0.0.1:3080] [--keep]
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,7 +58,7 @@ async function call(routePath, { method = "GET", body } = {}) {
 }
 
 const { installSkill, removeSkill } = await import("../lib/core/install.js");
-const { hiddenZone, skillsRoot } = await import("../lib/core/paths.js");
+const { backupsDir, hiddenZone, skillsRoot } = await import("../lib/core/paths.js");
 const { buildRows } = await import("../lib/core/scan.js");
 
 const probeName = `zz-live-check-${randomBytes(3).toString("hex")}`;
@@ -145,11 +145,17 @@ try {
 		});
 		check("a foreign Origin is refused", foreignOrigin.status === 403, String(foreignOrigin.status));
 
-		const removed = await call("/remove", { method: "POST", body: { name: probeName } });
-		check("remove answers 200", removed.status === 200 && removed.payload?.ok === true, JSON.stringify(removed.payload));
+		// `purge: true` on purpose: a probe is test debris, and every run that kept a backup
+		// accumulated one more directory in the user's backup area.
+		const removed = await call("/remove", { method: "POST", body: { name: probeName, purge: true } });
+		check("remove answers 200 (purge leaves no backup)", removed.status === 200 && removed.payload?.ok === true, JSON.stringify(removed.payload));
 		installedOnce = false;
 		check("the probe left the managed root", buildRows().rows.every((entry) => entry.name !== probeName));
 		check("the hidden zone does not hold it", buildRows({ root: hiddenZone() }).rows.every((entry) => entry.name !== probeName));
+		// A purge must also leave nothing behind in the backup area: this tool is run
+		// repeatedly, and one backup per run would quietly accumulate debris.
+		const leftovers = readdirSync(backupsDir()).filter((entry) => entry.startsWith(probeName));
+		check("a purged probe leaves no backup behind", leftovers.length === 0, leftovers.join(", "));
 	}
 } finally {
 	if (!KEEP && installedOnce) {
