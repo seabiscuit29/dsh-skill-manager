@@ -294,8 +294,18 @@ function exportTarget(pkg, subpath) {
  * Prove one entry specifier resolves to a real file, the way the loader will.
  * Handles package subpaths (`@scope/pkg/sub`), which is what the first-party
  * bundles use for multi-entry packages.
+ *
+ * `cordis:*` names are cordis BUILT-IN specifiers, not packages: dsh's own resolver
+ * short-circuits them (`if (name.startsWith("cordis:")) return void 0`) and the loader
+ * gives them built-in semantics (`cordis:group` is the group row). Resolving them as npm
+ * packages reported a false "does not resolve" error the moment an upstream bundle
+ * started using `cordis:group` (dsh 0.2.1-rc.4, `dsh-experimental-session-search`).
  */
 function checkEntrySpecifier(label, specifier, context) {
+	if (specifier.startsWith("cordis:")) {
+		note(`${label}: "${specifier}" is a cordis built-in specifier (no package resolution)`);
+		return;
+	}
 	const { packageName, subpath } = splitSpecifier(specifier);
 	const dir = resolvePackageDir(packageName, context);
 	if (dir === undefined) {
