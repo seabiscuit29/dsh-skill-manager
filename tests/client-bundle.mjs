@@ -150,6 +150,34 @@ const section = registrations.find((entry) => entry.descriptor?.name === "settin
 check("registers a settings.section", section !== undefined);
 check("section id is the existing Skills seat", section?.descriptor?.id === "skills", String(section?.descriptor?.id));
 check("section order is 16", section?.descriptor?.order === 16, String(section?.descriptor?.order));
+
+// The result card: dsh's generic card truncates the outcome to one line, so the plugin
+// supplies its own card for `/skill` through the chat's keyed command-view slot.
+const card = registrations.find((entry) => entry.descriptor?.name === "conversation.chat.commandview");
+check("registers a result card for the /skill command", card !== undefined);
+check("the card is keyed by the command name", card?.descriptor?.key === "skill", String(card?.descriptor?.key));
+check("the card is a component function", typeof card?.component === "function", String(typeof card?.component));
+check("the card declares the plugin locale namespace", card?.descriptor?.locale === "settings.skills", String(card?.descriptor?.locale));
+
+// Render the card once with the stub runtime: the jsx/jsxs contract and the
+// multi-line body are exactly what a broken call shape would silence in the page.
+try {
+	const tree = card.component({
+		node: { name: "skill", args: " list", outcome: { kind: "success", text: "line one\nline two" } },
+	});
+	const flat = JSON.stringify(tree);
+	check("the card renders the full multi-line text", flat.includes("line one\\nline two"), flat.slice(0, 200));
+	check("the card renders a pre block for the body", flat.includes('"pre"'));
+	const errorTree = JSON.stringify(
+		card.component({ node: { name: "skill", outcome: { kind: "error", text: "boom" } } }),
+	);
+	check("an error outcome is marked on the card", errorTree.includes('"data-state":"error"'));
+	const runningTree = JSON.stringify(card.component({ node: { name: "skill", outcome: null } }));
+	check("a running outcome is marked on the card", runningTree.includes('"data-state":"running"'));
+} catch (error) {
+	check("the card renders without throwing", false, `${error.constructor.name}: ${error.message}`);
+}
+
 check("dictionaries registered for the namespace", dictionaries.length > 0);
 check(
 	"zh and en dictionaries both present",

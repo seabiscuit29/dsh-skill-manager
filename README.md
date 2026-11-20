@@ -21,6 +21,20 @@ from **设置 → 技能**. It deliberately does not search the internet for ski
 | 安装（命令侧） | `/skill install <spec> [--force]` | 页面**不提供**安装入口 |
 | 更新 | 暂不支持（近期范围外） | — |
 
+### 在会话里看结果 / Reading the result in the chat
+
+命令执行后，结果会以卡片出现在会话流里（`>_ skill`）。dsh 自带的通用卡片只显示**一行摘要**、
+超出部分截成 `…`，`list` / `doctor` 这种多行输出会被藏起来。因此本插件从 **v0.1.13** 起注册了
+自己的结果卡片（`conversation.chat.commandview`，key=`skill`）：
+
+- 多行结果**默认展开**，等宽字体、限高 360px、可滚动；
+- 点标题栏可折叠/展开；错误结果显示为红色；
+- 若某个 dsh 版本不再提供该 slot，卡片注册会被安全跳过（设置页不受影响），此时仍可用 dsh
+  原生卡片：点击卡片可展开全文。
+
+> 小提示：带参数的命令（声明了 `input` 的）在输入框里回车会先进入"命令模式"（命令变成标签），
+> 再按一次回车或点发送按钮才提交——这是 dsh 的行为，不是本插件要求的。
+
 ## 它长什么样 / What the page looks like
 
 ![设置 → 技能：同一技能的启用/禁用两态对照、列表其余状态、控件注解与徽标图例](docs/images/skills-page.png)
