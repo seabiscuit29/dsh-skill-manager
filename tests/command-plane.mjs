@@ -316,6 +316,21 @@ console.log("\ndoctor");
 	check("doctor counts the ledger", /manifest: .* \(\d+ tracked\)/.test(text));
 }
 
+// ---------------------------------------------------------------- subcommand aliases
+console.log("\nsubcommand aliases");
+{
+	// dsh completes only the command name (its `/` trigger stops at the first space), so
+	// abbreviated subcommands are how a user shortens `/skill doctor` to `/skill doc`.
+	const aliased = await run("doc");
+	check("doc is an alias for doctor", aliased.kind === "success" && /skill root:/.test(aliased.text), aliased.text);
+	const aliasedList = await run("ls");
+	check("ls is an alias for list", aliasedList.kind === "success" && /skills:/.test(aliasedList.text), aliasedList.text);
+	const aliasedVerify = await run("v");
+	check("v is an alias for verify", aliasedVerify.kind === "success" && /clean|modified/.test(aliasedVerify.text), aliasedVerify.text);
+	const unknownAlias = await run("zzz");
+	check("an unknown alias still reports usage", unknownAlias.kind === "error" && /usage/i.test(unknownAlias.text), unknownAlias.text);
+}
+
 // ---------------------------------------------------------------- misc / errors
 console.log("\nunknown input");
 {

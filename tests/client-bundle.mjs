@@ -36,9 +36,11 @@ function check(label, condition, detail = "") {
 /** Seeds consumed by the first N useState calls, so a render can start in a ready state. */
 let stateSeeds = null;
 /** Minimal React stand-in: enough to define components and run one render pass. */
+let lastStateInitial;
 const reactStub = {
 	useState: (initial) => {
 		const fallback = typeof initial === "function" ? initial() : initial;
+		lastStateInitial = fallback;
 		if (stateSeeds !== null && stateSeeds.length > 0) return [stateSeeds.shift(), () => {}];
 		return [fallback, () => {}];
 	},
@@ -174,6 +176,18 @@ try {
 	check("an error outcome is marked on the card", errorTree.includes('"data-state":"error"'));
 	const runningTree = JSON.stringify(card.component({ node: { name: "skill", outcome: null } }));
 	check("a running outcome is marked on the card", runningTree.includes('"data-state":"running"'));
+
+	// The card is mounted while the command still runs, so an initial `false` from
+	// useState would leave a finished multi-line result collapsed forever (v0.1.13 bug).
+	check("the card does not freeze its open state on the first render", lastStateInitial === null, String(lastStateInitial));
+	const afterRunning = card.component({
+		node: { name: "skill", outcome: { kind: "success", text: "a\nb\nc" } },
+	});
+	check(
+		"a multi-line result is expanded even when the card first rendered as running",
+		JSON.stringify(afterRunning).includes('"pre"'),
+		JSON.stringify(afterRunning).slice(0, 160),
+	);
 } catch (error) {
 	check("the card renders without throwing", false, `${error.constructor.name}: ${error.message}`);
 }

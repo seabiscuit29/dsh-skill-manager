@@ -32,6 +32,18 @@ from **设置 → 技能**. It deliberately does not search the internet for ski
 - 若某个 dsh 版本不再提供该 slot，卡片注册会被安全跳过（设置页不受影响），此时仍可用 dsh
   原生卡片：点击卡片可展开全文。
 
+### 子命令别名 / Subcommand aliases
+
+dsh 的 `/` 补全**只在第一个 token 内生效**（遇到空格就关闭），也没有"命令参数补全"接口，所以
+`/skill doc` 这种参数位置无法 Tab 补全。等价做法是接受缩写：
+
+```
+ls/l=list   s/find=search   dis/off=disable   en/on=enable   rm/del=remove
+a=adopt     doc/diag=doctor  v=verify          m=migrate
+```
+
+所以 `/skill doc` 直接回车即可，不必打全 `doctor`。
+
 > 小提示：带参数的命令（声明了 `input` 的）在输入框里回车会先进入"命令模式"（命令变成标签），
 > 再按一次回车或点发送按钮才提交——这是 dsh 的行为，不是本插件要求的。
 
