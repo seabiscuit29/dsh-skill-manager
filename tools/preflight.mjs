@@ -789,8 +789,13 @@ if (!existsSync(profilePkgFile)) {
 		note(`${label}: appends ${patch.appended.length}, overrides ${patch.overrides.length}`);
 		for (const entry of patch.appended) {
 			if (appendedIds.has(entry.id)) {
-				fail(
-					`duplicate appended entry id "${entry.id}" (${appendedIds.get(entry.id)} and ${label}) — two entries with one id cannot mount`,
+				// A WARNING, not an error: measured on dsh 0.2.2-rc.5, a profile that both
+				// enables dsh-experimental-tool-worktree and dsh-experimental-forge-bundle
+				// (which re-declares the same worktree/tool-worktree entries) boots and runs
+				// — the loader mounts one entry per id. But which declaration wins is not
+				// obvious, so it stays visible instead of being silently tolerated.
+				warn(
+					`duplicate appended entry id "${entry.id}" (${appendedIds.get(entry.id)} and ${label}) — dsh mounts one of them; enable only one of the two bundles to make the winner explicit`,
 				);
 			} else {
 				appendedIds.set(entry.id, label);

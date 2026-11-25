@@ -71,6 +71,20 @@
 7. **活体探针会留下备份**（工具自身瑕疵）：`live-check` 的 remove 默认保留备份，每跑一次就往
    `.skill-backups` 堆一个探针副本。→ 改为 `purge: true` 并新增断言「purged probe leaves no
    backup behind」；历史遗留的 3 个探针备份已核对账本无引用后清除。
+8. **`/skill` 结果在会话里看不到**（dsh 0.2.2 的显示层，2026-11-20~25 处理）：
+   - dsh 的通用命令卡片只渲染一行摘要并截断成 `…`，`list`／`doctor` 的多行输出被藏起来。
+     → 插件自己向 `conversation.chat.commandview`（key=`skill`）注册结果卡片（v0.1.13），
+     多行默认展开、等宽、限高可滚；slot 缺失时安全跳过。
+   - 默认展开第一版没生效：卡片在"运行中"就挂载，`useState(lines > 1)` 把首渲染的 `false` 冻结。
+     → 改三态 `manual`（v0.1.14），并补两条能抓到这个回归的断言。
+   - 长行被右边缘截断 → `white-space: pre-wrap` 自动折行（v0.1.15），由用户实测确认。
+   - **Tab 参数补全做不到**：dsh 的 `/` 触发在第一个空白处就 `return null`，且没有命令参数补全 API；
+     Tab 只用于确认 `/` 菜单候选。→ 改为接受子命令别名（`doc`/`ls`/`rm`/`en`/`dis`…）。
+9. **预检曾把"重复 appended entry id"当硬错误**：实测 dsh 0.2.2-rc.5 在
+   `dsh-experimental-tool-worktree` 与 `dsh-experimental-forge-bundle`（后者重复声明
+   `worktree`/`tool-worktree`）同时启用时**照常启动**，只是哪个声明生效不明确。
+   → 该检查从 `FAIL` 降为 `WARN`（措辞改为"dsh mounts one of them"），预检恢复
+   `PASS: 0 error(s), 2 warning(s)`，不再挡住重启。
 
 ## 五、验证矩阵（最终）
 
