@@ -21,6 +21,27 @@ from **设置 → 技能**. It deliberately does not search the internet for ski
 | 安装（命令侧） | `/skill install <spec> [--force]` | 页面**不提供**安装入口 |
 | 更新 | 暂不支持（近期范围外） | — |
 
+### `/skill install` 的 spec 语法 / Accepted source specs
+
+`<spec>` 只有三种合法形态，**其余一律当作本地路径**：
+
+| 形态 | 例子 | 说明 |
+|---|---|---|
+| GitHub 简写 | `github:seabiscuit29/dsh-skill-manager` | 最短，默认 `main` |
+| git 远端 URL | `https://github.com/owner/repo.git`<br>`ssh://git@host/owner/repo.git`<br>`git@host:owner/repo.git` | 也接受 npm 风格的 `git+https://…` 前缀 |
+| 本地路径 | `/abs/path`、`~/path/skill` | 目录或打包文件 |
+
+三种形态都支持 `#<ref>[/<path>]` 后缀，用来固定分支/标签，或指定仓库内的子目录：
+
+```
+github:owner/mono-repo#v1.2.0/skills/my-skill
+https://github.com/owner/repo.git#main/skills/my-skill
+```
+
+> ⚠️ 写成其它形式（例如裸包名 `my-skill`）会被当成相对路径，报
+> `local path does not exist: <cwd>/my-skill` —— 这是最常见的安装失败原因。
+> 注意本表只适用于 `/skill install`；`dsh plugin … add` 走 pnpm 的 spec 语法，另一套规则。
+
 ### 在会话里看结果 / Reading the result in the chat
 
 命令执行后，结果会以卡片出现在会话流里（`>_ skill`）。dsh 自带的通用卡片只显示**一行摘要**、
